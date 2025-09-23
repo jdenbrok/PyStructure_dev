@@ -61,10 +61,7 @@ def add_band_to_struct(struct={}, band="", unit="", desc=""):
     return new_struct
 
 
-
-
-
-def add_spec_to_struct (struct={}, line="", unit="", desc="", n_chan = 500):
+def add_spec_to_struct(struct={}, line="", unit="", desc="", n_chan = 500):
     """
     NAME:
 

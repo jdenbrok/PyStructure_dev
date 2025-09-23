@@ -58,7 +58,7 @@ def construct_mask(ref_line, this_data, SN_processing):
 def dist(ra, dec, ra_c, dec_c):
     return np.sqrt((ra-ra_c)**2+(dec-dec_c)**2)
     
-def process_spectra(sources_data,
+def process_spectra(sources_data,  # LN: variable not used
                     source_list,
                     lines_data,
                     fname,shuff_axis,
@@ -66,6 +66,8 @@ def process_spectra(sources_data,
                     ref_line_method,
                     SN_processing,
                     strict_mask,
+                    input_mask = None, # newly added
+                    use_input_mask = False,  # newly added
                     mom_calc = [3, 3, "fwhm"],
                     just_source = None
                     ):
@@ -107,82 +109,100 @@ def process_spectra(sources_data,
         #  Build a mask based on reference line(s)
         #--------------------------------------------------------------
 
-        # Use function for mask
-        mask, ref_line_vmean, ref_line_vaxis = construct_mask(ref_line, this_data, SN_processing)
-        this_data["SPEC_MASK_"+ref_line]= mask
-        #this_data["INT_VAL_V"+ref_line] = ref_line_vmean
+        if use_input_mask:
+            # check that input mask is provided
+            if len(input_mask) == 0:
+                print(f'{"[ERROR]":<10}', f'No mask provided!')
 
-        #check if all lines used as reference line
-        n_mask = 0
-        if ref_line_method in ["all"]:
-            n_mask = n_lines
-            print(f'{"[INFO]":<10}', 'All lines used as prior.')
-        elif isinstance(ref_line_method, int):
-            n_mask = np.min([n_lines,ref_line_method])
-            print(f'{"[INFO]":<10}', f'Using first {n_mask+1} lines as prior.')
-        if n_mask>0:
-            for n_mask_i in range(1,n_mask+1):
-                line_i = lines_data["line_name"][n_mask_i].upper()
-                mask_i, ref_line_vmean_i, ref_line_vaxis_i = construct_mask(line_i, this_data, SN_processing)
-                this_data["SPEC_MASK_"+line_i]= mask_i
-                #this_data["INT_VAL_V"+line_i] = ref_line_vmean_i
+            # use input mask
+            # mask = this_data["SPEC_VAL_MASK"]
+            mask = this_data[f'SPEC_VAL_{input_mask["mask_name"][0].upper()}']
 
-                # add mask to existing mask
-                mask = mask | mask_i
-                
-        elif ref_line_method in ["ref+HI"]:
-            if "hi" not in list(lines_data["line_name"]):
-                print(f'{"[WARNING]":<10}', 'HI not in PyStructure. Skipping.')
-            else:
-                mask_hi, ref_line_vmean_hi, ref_line_vaxis_hi = construct_mask("HI", this_data, SN_processing)
-                
-                mask = mask | mask_hi
-                
-                rgal = this_data["rgal_r25"]
-                n_pts = len(this_data["rgal_r25"])
-                vmean_comb = np.zeros(n_pts)*np.nan
-                for jj in range(n_pts):
-                    if rgal[jj]<0.23:
-                        vmean_comb[jj] = ref_line_vmean[jj]
-                    else:
-                        vmean_comb[jj] = ref_line_vmean_hi[jj]
-                ref_line_vmean = vmean_comb
-        if strict_mask:
-            """
-            Make sure that spatialy we do not have only connected pixels
-            """
-            ra, dec = this_data["ra_deg"], this_data["dec_deg"]
-            for jj in range(n_chan):
-                mask_spec = mask[:,jj]
-                mask_labels=np.zeros_like(mask_spec)
-                sep = this_data["beam_as"]/3600/2
-                label=1
-                for n in range(len(mask_labels)):
-                    if mask_labels[n]==0:
-                        if mask_spec[n]==0:
-                            mask_labels[n]=-99
-                            continue
-        
-                        dist_array=dist(ra, dec, ra[n], dec[n])
-                        #check out neighbours
-                        idx_neigh=np.where(abs(dist_array-sep)<0.1*this_data["beam_as"]/3600)
-                        #check if labels have already been given (except 0 or -99)
-                        labels_given=np.unique(mask_labels[idx_neigh])
-                        index = labels_given[labels_given>0]
-                        if len(index)>0:
-                            mask_labels[n]=index[0]
-                            if len(index)>1:
-                                for i in range(len(index)-1):
-                                    mask_labels[mask_labels==index[i+1]]=index[0]
+            # clean up database
+            del this_data[f'SPEC_VAL_{input_mask["mask_name"][0].upper()}']
+            del this_data[f'SPEC_DESC_{input_mask["mask_name"][0].upper()}']
+            # del this_data["SPEC_DESC_MASK"]
+
+            # take reference velocity and vaxis from reference line
+            _, ref_line_vmean, ref_line_vaxis = construct_mask(ref_line, this_data, SN_processing)
+
+        else:
+            # Use function for mask
+            mask, ref_line_vmean, ref_line_vaxis = construct_mask(ref_line, this_data, SN_processing)
+            this_data["SPEC_MASK_"+ref_line]= mask
+            #this_data["INT_VAL_V"+ref_line] = ref_line_vmean
+
+            #check if all lines used as reference line
+            n_mask = 0
+            if ref_line_method in ["all"]:
+                n_mask = n_lines
+                print(f'{"[INFO]":<10}', 'All lines used as prior.')
+            elif isinstance(ref_line_method, int):
+                n_mask = np.min([n_lines,ref_line_method])
+                print(f'{"[INFO]":<10}', f'Using first {n_mask+1} lines as prior.')
+            if n_mask>0:
+                for n_mask_i in range(1,n_mask+1):
+                    line_i = lines_data["line_name"][n_mask_i].upper()
+                    mask_i, ref_line_vmean_i, ref_line_vaxis_i = construct_mask(line_i, this_data, SN_processing)
+                    this_data["SPEC_MASK_"+line_i]= mask_i
+                    #this_data["INT_VAL_V"+line_i] = ref_line_vmean_i
+
+                    # add mask to existing mask
+                    mask = mask | mask_i
+                    
+            elif ref_line_method in ["ref+HI"]:
+                if "hi" not in list(lines_data["line_name"]):
+                    print(f'{"[WARNING]":<10}', 'HI not in PyStructure. Skipping.')
+                else:
+                    mask_hi, ref_line_vmean_hi, ref_line_vaxis_hi = construct_mask("HI", this_data, SN_processing)
+                    
+                    mask = mask | mask_hi
+                    
+                    rgal = this_data["rgal_r25"]
+                    n_pts = len(this_data["rgal_r25"])
+                    vmean_comb = np.zeros(n_pts)*np.nan
+                    for jj in range(n_pts):
+                        if rgal[jj]<0.23:
+                            vmean_comb[jj] = ref_line_vmean[jj]
                         else:
-                            mask_labels[n]=label
-                            label+=1
-                labels = np.unique(mask_labels)
-                for lab in labels:
-                    if lab <0:
-                        continue
-                    if len(mask[:,jj][np.where(mask_labels==lab)])<5:
-                        mask[:,jj][np.where(mask_labels==lab)]=0
+                            vmean_comb[jj] = ref_line_vmean_hi[jj]
+                    ref_line_vmean = vmean_comb
+            if strict_mask:
+                """
+                Make sure that spatialy we do not have only connected pixels
+                """
+                ra, dec = this_data["ra_deg"], this_data["dec_deg"]
+                for jj in range(n_chan):
+                    mask_spec = mask[:,jj]
+                    mask_labels=np.zeros_like(mask_spec)
+                    sep = this_data["beam_as"]/3600/2
+                    label=1
+                    for n in range(len(mask_labels)):
+                        if mask_labels[n]==0:
+                            if mask_spec[n]==0:
+                                mask_labels[n]=-99
+                                continue
+            
+                            dist_array=dist(ra, dec, ra[n], dec[n])
+                            #check out neighbours
+                            idx_neigh=np.where(abs(dist_array-sep)<0.1*this_data["beam_as"]/3600)
+                            #check if labels have already been given (except 0 or -99)
+                            labels_given=np.unique(mask_labels[idx_neigh])
+                            index = labels_given[labels_given>0]
+                            if len(index)>0:
+                                mask_labels[n]=index[0]
+                                if len(index)>1:
+                                    for i in range(len(index)-1):
+                                        mask_labels[mask_labels==index[i+1]]=index[0]
+                            else:
+                                mask_labels[n]=label
+                                label+=1
+                    labels = np.unique(mask_labels)
+                    for lab in labels:
+                        if lab <0:
+                            continue
+                        if len(mask[:,jj][np.where(mask_labels==lab)])<5:
+                            mask[:,jj][np.where(mask_labels==lab)]=0
 
         #store the mask in the PyStructure
         this_data["SPEC_MASK"]= mask

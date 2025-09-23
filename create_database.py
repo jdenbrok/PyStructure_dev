@@ -46,11 +46,14 @@ MODIFICATION HISTORY
     - v3.1.0 July 2025
             - Merge publishes version with Uni Bonn version
             - Implement feature to complete PyStructre
+    - v3.1.1 September 2025
+            - Input velocity-integration mask as optional feature
+            - Clean-ups to improve readibility of the code
 
 
 """
 __author__ = "J. den Brok"
-__version__ = "v3.0.0"
+__version__ = "v3.1.1"
 __email__ = "jakob.den_brok@cfa.harvard.edu"
 __credits__ = ["L. Neumann","M. Jimenez-Donaire", "E. Rosolowsky","A. Leroy ", "I. Beslic"]
 
@@ -70,15 +73,16 @@ import glob
 
 import sys
 sys.path.append("./scripts/")
-from structure_addition import *
-from sampling import *
-from sampling_at_resol import *
-from deproject import *
-from twod_header import *
-from making_axes import *
-from processing_spec import *
+from structure_addition import add_band_to_struct, add_spec_to_struct
+from sampling import make_sampling_points
+from sampling_at_resol import sample_at_res, sample_mask
+from deproject import deproject
+from twod_header import twod_head
+from making_axes import make_axes  # LN: not actually used 
+from processing_spec import process_spectra
 from message_list import *
-from save_moment_maps import *
+from save_moment_maps import save_mom_to_fits
+
 #----------------------------------------------------------------------
 # Change these lines of code with correct directory and names
 #----------------------------------------------------------------------
@@ -237,8 +241,9 @@ def create_temps(conf_file):
     py_input ='./Temp_Files/conf_Py.py'
     band_f = './Temp_Files/band_list_temp.txt'
     cube_f = './Temp_Files/cube_list_temp.txt'
+    mask_f = './Temp_Files/mask_temp.txt'
 
-    with open(conf_file,'r') as firstfile, open(py_input,'a') as secondfile, open(band_f,'a') as third, open(cube_f,'a') as fourth:
+    with open(conf_file,'r') as firstfile, open(py_input,'a') as secondfile, open(band_f,'a') as third, open(cube_f,'a') as fourth, open(mask_f,'a') as fifth:
 
         # read content from first file
         for line in firstfile:
@@ -246,16 +251,20 @@ def create_temps(conf_file):
             if "Define Bands" in line:
                 loc = 1
             if "Define Cubes" in line:
-                loc = 2
+                loc = 2            
+            if "Define Mask" in line:
+                loc = 3
 
             if loc == 0:
                 secondfile.write(line)
-            elif loc ==1:
+            elif loc == 1:
                 third.write(line)
-            elif loc ==2:
+            elif loc == 2:
                 fourth.write(line)
+            elif loc == 3:
+                fifth.write(line)
 
-    return band_f, cube_f
+    return band_f, cube_f, mask_f
 
 def create_database(just_source=None, quiet=False, conf=False):
     """
@@ -305,7 +314,7 @@ def create_database(just_source=None, quiet=False, conf=False):
                                          desc=bands["band_desc"][ii])
 
     if quiet == False:
-        print(f'{"[INFO]":<10}', f'{n_bands} band(s) included in structure.')
+        print(f'{"[INFO]":<10}', f'{n_bands} band(s) loaded into structure.')
 
 
     # Add the cubes to the structure
@@ -327,7 +336,28 @@ def create_database(just_source=None, quiet=False, conf=False):
                                                     desc=cubes["line_desc"][ii])
 
     if quiet == False:
-        print(f'{"[INFO]":<10}', f'{n_cubes} cube(s) included in final structure.')
+        print(f'{"[INFO]":<10}', f'{n_cubes} cube(s) loaded into structure.')
+
+    # Add the input velocity-integration mask to the structure
+    # mask_columns = ["mask_name", "mask_desc", "mask_unit", "mask_ext", "mask_dir"]
+    mask_columns = ["mask_name", "mask_desc", "mask_ext", "mask_dir"]
+    input_mask = pd.read_csv(mask_file, names = mask_columns, sep='[\s,]{2,20}', comment="#")
+    if len(input_mask) == 0:
+        if quiet == False:
+            print(f'{"[INFO]":<10}', f'No mask provided; will be constructed from prior line(s).')
+    else:
+        empty_structure = add_spec_to_struct(struct=empty_structure,
+                                            line=input_mask["mask_name"][0],
+                                            desc=input_mask["mask_desc"][0])
+        # remove unit for mask
+        del empty_structure[f'SPEC_UNIT_{input_mask["mask_name"][0].upper()}']
+
+        if quiet == False:
+            if use_input_mask:
+                print(f'{"[INFO]":<10}', f'Input mask loaded into structure; will be used for products.')
+            else:
+                print(f'{"[INFO]":<10}', f'Input mask loaded into structure; will NOT be used for products.')
+
 
     #-----------------------------------------------------------------
     # LOOP OVER SOURCES
@@ -365,7 +395,7 @@ def create_database(just_source=None, quiet=False, conf=False):
 
         #---------------------------------------------------------------------
         # MAKE SAMPLING POINTS FOR THIS TARGET
-        #--------------------------------------------------------------------
+        #---------------------------------------------------------------------
 
         #Generate sampling points using the overlay file provided as a template and half-beam spacing.
 
@@ -400,7 +430,7 @@ def create_database(just_source=None, quiet=False, conf=False):
         #add slice of overlay
         overlay_slice_list.append(ov_cube[ov_hdr["NAXIS3"]//2,:,:])
 
-        this_vaxis_ov = make_axes(ov_hdr, vonly = True)
+        this_vaxis_ov = make_axes(ov_hdr, vonly = True) # LN: variable not used
         #mask = total(finite(hcn_cube),3) ge 1
         mask = np.sum(np.isfinite(ov_cube), axis = 0)>=1
         mask_hdr = twod_head(ov_hdr)
@@ -480,9 +510,10 @@ def create_database(just_source=None, quiet=False, conf=False):
                              )
         if not quiet:
             print(f'{"[INFO]":<10}', 'Finished generating hexagonal grid.')
+
         #---------------------------------------------------------------------
         # INITIIALIZE THE NEW STRUCTURE
-        #--------------------------------------------------------------------
+        #---------------------------------------------------------------------
         n_pts = len(samp_ra)
 
         # The following lines do this_data=replicate(empty_struct, 1)
@@ -528,7 +559,7 @@ def create_database(just_source=None, quiet=False, conf=False):
 
         #---------------------------------------------------------------------
         # LOOP OVER MAPS, CONVOLVING AND SAMPLING
-        #--------------------------------------------------------------------
+        #---------------------------------------------------------------------
 
         for jj in range(n_bands):
             if 'fill' in structure_creation:
@@ -595,7 +626,7 @@ def create_database(just_source=None, quiet=False, conf=False):
             if not path.exists(this_uc_file):
                 print(f'{"[WARNING]":<10}', f'Uncertainty band {bands["band_name"][jj]} not found for {this_source}.')
                 continue
-            print(f'{"[INFO]":<10}', f'Sampling at resolution band {bands["band_name"][jj]} for {this_source}.')
+            print(f'{"[INFO]":<10}', f'Convolving and sampling band {bands["band_name"][jj]} for {this_source}.')
 
             this_uc, this_hdr = sample_at_res(in_data = this_uc_file,
                                     ra_samp = samp_ra,
@@ -613,7 +644,7 @@ def create_database(just_source=None, quiet=False, conf=False):
 
 
         #---------------------------------------------------------------------
-        # LOOP OVER MAPS, CONVOLVING AND SAMPLING
+        # LOOP OVER CUBES, CONVOLVING AND SAMPLING
         #---------------------------------------------------------------------
 
         for jj in range(n_cubes):
@@ -635,7 +666,7 @@ def create_database(just_source=None, quiet=False, conf=False):
                 print(f'{"[ERROR]":<10}', f'Line {cubes["line_name"][jj]} not found for {this_source}.')
 
                 continue
-            print(f'{"[INFO]":<10}', f'Sampling at resolution band {cubes["line_name"][jj]} for {this_source}.')
+            print(f'{"[INFO]":<10}', f'Convolving and sampling line {cubes["line_name"][jj]} for {this_source}.')
 
             if "/beam" in cubes["line_unit"][jj]:
                 perbeam = True
@@ -664,7 +695,7 @@ def create_database(just_source=None, quiet=False, conf=False):
 
             #this_line_hdr = fits.getheader(this_line_file)
 
-            this_vaxis = make_axes(this_hdr, vonly = True)
+            this_vaxis = make_axes(this_hdr, vonly = True) # LN: variable not used
             sz_this_spec = np.shape(this_spec)
             n_chan = sz_this_spec[1]
 
@@ -717,7 +748,7 @@ def create_database(just_source=None, quiet=False, conf=False):
                     print(f'{"[WARNING]":<10}', f'UC Band {cubes["line_name"][jj]} not found for {this_source}.')
                     continue
                 if not quiet:
-                    print(f'{"[INFO]":<10}', f'Sampling at resolution band {cubes["line_name"][jj]} for {this_source}.')
+                    print(f'{"[INFO]":<10}', f'Convolving and sampling line {cubes["line_name"][jj]} for {this_source}.')
 
                 this_uc, this_hdr = sample_at_res(in_data = this_uc_file,
                                         ra_samp = samp_ra,
@@ -735,14 +766,59 @@ def create_database(just_source=None, quiet=False, conf=False):
             if not quiet:
                 print(f'{"[INFO]":<10}', f'Done with line {cubes["line_name"][jj]}.')
 
+
+        #---------------------------------------------------------------------
+        # SAMPLE MASK
+        #---------------------------------------------------------------------
+
+        if len(input_mask) > 0:
+            # assign mask file
+            this_mask_file = input_mask["mask_dir"][0] + this_source + input_mask["mask_ext"][0]
+
+            # print commands
+            if not path.exists(this_mask_file):
+                print(f'{"[ERROR]":<10}', f'Mask not found for {this_source}.')
+                continue
+            print(f'{"[INFO]":<10}', f'Sampling mask for {this_source}.')
+        
+            # sample mask
+            this_spec, this_hdr = sample_mask(in_data = this_mask_file,
+                                            ra_samp = samp_ra,
+                                            dec_samp = samp_dec,
+                                            target_hdr = ov_hdr)
+
+            # add to database
+            this_tag_name = 'SPEC_VAL_'+input_mask["mask_name"][0].upper()
+            if this_tag_name in this_data:
+                this_data[this_tag_name] = this_spec
+            else:
+                print(f'{"[ERROR]":<10}', f'I had trouble matching tag {this_tag_name} to the database.')
+                continue
+
+            # this_vaxis = make_axes(this_hdr, vonly = True) # LN: variable not used
+            sz_this_spec = np.shape(this_spec)
+            n_chan = sz_this_spec[1]
+
+            for kk in range(n_pts):
+                temp_spec = this_data[this_tag_name][kk]
+                temp_spec[0:n_chan] = this_spec[kk,:]
+                this_data[this_tag_name][kk] = temp_spec
+
+            if not quiet:
+                print(f'{"[INFO]":<10}', f'Done with mask.')
+
         
         np.save(fname_dict, this_data)
+
     #---------------------------------------------------------------------
     # NOW PROCESS THE SPECTRA
     #---------------------------------------------------------------------
     if not quiet:
-        print(f'{"[INFO]":<10}', 'Start processing spectra.')
-        
+        if use_input_mask:
+            print(f'{"[INFO]":<10}', 'Start processing spectra; using input mask.')
+        else:
+            print(f'{"[INFO]":<10}', 'Start processing spectra.')
+            
     process_spectra(glxy_data,
                     galaxy_list,
                     cubes,fnames,
@@ -751,6 +827,8 @@ def create_database(just_source=None, quiet=False, conf=False):
                     ref_line,
                     SN_processing,
                     strict_mask,
+                    input_mask, 
+                    use_input_mask, 
                     [mom_thresh,conseq_channels,mom2_method],
                     )
 
@@ -794,6 +872,7 @@ if not args.config is None:
     temp_f = create_temps(conf_file)
     band_file = temp_f[0]
     cube_file = temp_f[1]
+    mask_file = temp_f[2]
 
     #import and use variables from config_file
     sys.path.append("./Temp_Files/")

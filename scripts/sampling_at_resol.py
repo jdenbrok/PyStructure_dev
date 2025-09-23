@@ -1,22 +1,21 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.io import fits
-import os.path
+# import os.path
 from os import path
 import copy
-from spectral_cube import SpectralCube
-import radio_beam
-from scipy import stats
-from astropy import units as u
+import radio_beam # LN: not used in the script
+from scipy import stats # LN: not used in the script
+from astropy import units as u # LN: not used in the script
 from reproject import reproject_interp
 from astropy.wcs import WCS
 from astropy.stats import median_absolute_deviation
-from spectral_cube import SpectralCube
-from twod_header import *
-import radio_beam
+from astropy.convolution import Gaussian1DKernel, Box1DKernel, convolve
+from spectral_cube import SpectralCube # LN: not used in the script
+from twod_header import twod_head
 import warnings
 warnings.filterwarnings("ignore")
-from astropy.convolution import Gaussian1DKernel, Box1DKernel, convolve
+
 
 from gauss_conv import *
 
@@ -27,6 +26,7 @@ def get_vaxis(hdr):
     vaxis = vdif * hdr["CDELT3"] + hdr["CRVAL3"]
     return vaxis
 
+
 def sample_at_res(in_data,
                   ra_samp,
                   dec_samp,
@@ -34,8 +34,8 @@ def sample_at_res(in_data,
                   target_res_as = None,
                   target_hdr = None,
                   coverage = None,
-                  rms = None,
-                  show = False,
+                  rms = None,  # LN: not used in the function (delete?)
+                  show = False,  # LN: not used in the function (delete?)
                   #advanced parameters
                   line_name = "",
                   galaxy = "",
@@ -44,7 +44,6 @@ def sample_at_res(in_data,
                   perbeam = False,
                   spec_smooth = ["default","binned"],
                   unc=False):
-
     """
     Function to sample the data and convolve
     """
@@ -93,6 +92,7 @@ def sample_at_res(in_data,
 
     if not is_cube:
         target_hdr = twod_head(target_hdr)
+
     #--------------------------------------------------------------
     #   Convolve and Align
     #------------------------------------------------------------
@@ -101,11 +101,16 @@ def sample_at_res(in_data,
 
     #reduce by 1% to account for rounding
     if current_bmaj < (0.99*target_res_as/3600):
-        data, hdr_out = conv_with_gauss(in_data= data, in_hdr = hdr,
-                                              target_beam = target_res_as*np.array([1,1,0]),
-                                              quiet = True,
-                                              perbeam = perbeam,
-                                              unc=unc)
+        
+        print(f'{"[INFO]":<10}', f'Convolve to {target_res_as} arcseconds.')
+
+        # convolve data with Gaussian kernel
+        data, hdr_out = conv_with_gauss(in_data = data, 
+                                        in_hdr = hdr,
+                                        target_beam = target_res_as*np.array([1,1,0]),
+                                        quiet = True,
+                                        perbeam = perbeam,
+                                        unc=unc)
 
         #data_speccube = SpectralCube(data=data, wcs = WCS(hdr))
         #data_speccube.beam = radio_beam.Beam(major=current_bmaj*u.arcsec, minor=current_bmaj*u.arcsec, pa=0*u.deg)
@@ -117,13 +122,10 @@ def sample_at_res(in_data,
         print(f'{"[INFO]":<10}', 'Already at target resolution.')
         hdr_out = copy.copy(hdr)
 
-
     #; Measure the rms in the map after convolution but before
     #; alignment. This isn't really ideal but can be a useful
     #; shorthand for the noise.
-
-    rms = median_absolute_deviation(data, axis = None,ignore_nan=True)
-
+    rms = median_absolute_deviation(data, axis = None,ignore_nan=True) # LN: not used in the function (delete?)
 
     ######
     # Check that velocity axis is in m/s, not km/s
@@ -184,8 +186,6 @@ def sample_at_res(in_data,
                     x = spec_n//dim_data[1]
                     data[:,y,x] = convolve(data[:, y,x],kernel,nan_treatment='fill')
 
-
-
             # Binning method
             elif spec_smooth[1] in ["binned", "combined"]:
                 vaxis_native = get_vaxis(hdr_out)
@@ -218,12 +218,7 @@ def sample_at_res(in_data,
                             x = spec_n//dim_data[1]
                             data[:,y,x] = convolve(data[:, y,x],kernel,nan_treatment='fill')
 
-
-
-
     # Align, if needed
-
-
     if not target_hdr is None:
         #check if we are spectrally smoothing. If so, prep the target_hdr to the right spectral number
         trg_hdr = copy.deepcopy(target_hdr)
@@ -260,7 +255,8 @@ def sample_at_res(in_data,
 
     #--------------------------------------------------------------
     #   Sample
-    #------------------------------------------------------------
+    #--------------------------------------------------------------
+
     wcs_target = WCS(trg_hdr)
     if is_cube:
         pixel_coords = wcs_target.all_world2pix(np.column_stack((ra_samp, dec_samp, np.zeros(len(dec_samp)))),0)
@@ -274,6 +270,131 @@ def sample_at_res(in_data,
     n_pts = len(samp_x)
     dim_data = np.shape(data)
 
+
+    if is_cube:
+        result = np.zeros((n_pts, dim_data[0]))*np.nan
+    else:
+        result = np.zeros(n_pts)*np.nan
+
+    coverage = np.zeros(n_pts)
+    if is_cube:
+
+        in_map = np.where((samp_x>0)& (samp_x <dim_data[2]) &
+                          (samp_y > 0)& (samp_y < dim_data[1]))[0]
+        in_map_ct = len(in_map)
+    else:
+        in_map = np.where((samp_x>0)& (samp_x <dim_data[1]) &
+                          (samp_y > 0)& (samp_y < dim_data[0]))[0]
+        in_map_ct = len(in_map)
+
+
+    if in_map_ct>0:
+        if is_cube:
+            for kk in range(in_map_ct):
+
+                result[in_map[kk],:] = data[:, samp_y[in_map[kk]],samp_x[in_map[kk]]]
+                coverage[in_map[kk]] =  np.nansum(np.isfinite(data[:, samp_y[in_map[kk]],samp_x[in_map[kk]]]))>=1
+            coverage = np.array(coverage, dtype = int)
+        else:
+            result[in_map] = data[samp_y[in_map],samp_x[in_map]]
+            coverage[in_map] = np.isfinite(data[samp_y[in_map],samp_x[in_map]])
+
+    #--------------------------------------------------------------
+    #   Return
+    #------------------------------------------------------------
+
+    return result, trg_hdr
+
+
+def sample_mask(in_data,
+                  ra_samp,
+                  dec_samp,
+                  in_hdr = None,
+                #   target_res_as = None,
+                  target_hdr = None,
+                  coverage = None,
+                #   rms = None,  # LN: not used in the function (delete?)
+                #   show = False,  # LN: not used in the function (delete?)
+                  #advanced parameters
+                #   line_name = "",
+                #   galaxy = "",
+                #   save_fits = False,
+                #   path_save_fits = "",
+                #   perbeam = False,
+                #   spec_smooth = ["default","binned"],
+                #   unc=False
+                  ):
+
+    """
+    Function to sample the data
+    """
+
+    #--------------------------------------------------------------
+    #   Defaults and Definitions
+    #-------------------------------------------------------------
+
+    # Check if ra and dec arrays have same length
+    if len(ra_samp) != len(dec_samp):
+        print(f'{"[ERROR]":<10}', 'Need matching RA and Dec vector. Returning.')
+        return np.nan
+
+    # Check if data given as string (need to load data first) or already given
+    # as an array.
+    if isinstance(in_data, str):
+        # Data given in form of a string, need to load data
+        if not path.exists(in_data):
+            print(f'{"[ERROR]":<10}', f'File {in_data} not found. Returning.')
+            return ra_samp * np.nan
+        data, hdr = fits.getdata(in_data, header = True)
+
+    else:
+        data = copy.deepcopy(in_data)
+        if not in_hdr is None:
+            hdr = in_hdr
+        else:
+            print(f'{"[ERROR]":<10}', 'Provide a valid header with the data.')
+            return ra_samp*np.nan
+
+    # check dimension of mask
+    dim_data = np.shape(data)
+    if len(dim_data) == 3:
+        is_cube = True
+    else:
+        is_cube = False
+
+    if not is_cube:
+        target_hdr = twod_head(target_hdr)
+
+
+    # Align, if needed
+    if not target_hdr is None:
+        trg_hdr = copy.deepcopy(target_hdr)
+        hdr_out = copy.copy(hdr)
+        wcs_target = WCS(trg_hdr)
+        #need to delete the rest frequency for latest astropy version
+        del hdr_out["RESTF*"]
+        del trg_hdr["RESTF*"]
+        data_out, footprint = reproject_interp((data, hdr_out), trg_hdr, order="nearest-neighbor")
+        data = data_out
+
+    else:
+        print(f'{"[INFO]":<10}', 'No alignment because no target header supplied.')
+
+    #--------------------------------------------------------------
+    #   Sample
+    #--------------------------------------------------------------
+
+    trg_hdr = copy.deepcopy(target_hdr)
+    wcs_target = WCS(trg_hdr)
+    if is_cube:
+        pixel_coords = wcs_target.all_world2pix(np.column_stack((ra_samp, dec_samp, np.zeros(len(dec_samp)))),0)
+    else:
+        pixel_coords = wcs_target.all_world2pix(np.column_stack((ra_samp, dec_samp)),0)
+    samp_x = np.array(np.rint(pixel_coords[:,0]),dtype=int)
+    samp_y = np.array(np.rint(pixel_coords[:,1]),dtype= int)
+
+    n_pts = len(samp_x)
+    dim_data = np.shape(data)
 
     if is_cube:
         result = np.zeros((n_pts, dim_data[0]))*np.nan

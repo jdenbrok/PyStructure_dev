@@ -18,7 +18,6 @@ def sample_to_hdr(in_data,  # input data on hexagonal grid (ra_samp, dec_samp)
     specified by the header
     """
     
-    
     #--------------------------------------------------------------
     #  Create Pixel Grid from Header
     #--------------------------------------------------------------
@@ -47,6 +46,7 @@ def sample_to_hdr(in_data,  # input data on hexagonal grid (ra_samp, dec_samp)
     
     return data_grid
     
+
 def resample_hdr(hdr_ov, target_res):
     """
     Function to resample the grid to account for lower target resolution
@@ -116,8 +116,6 @@ def save_to_fits(ra,
     fits.writeto(folder+this_source+"_"+line+"_"+filename+".fits", data =map_cartesian, header =  hdr_in, overwrite=True)
     
     
-    
-
 def save_mom_to_fits(fname,
                      lines_data,
                      source_list,
