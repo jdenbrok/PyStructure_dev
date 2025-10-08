@@ -49,13 +49,15 @@ MODIFICATION HISTORY
     - v3.1.1 September 2025
             - Input velocity-integration mask as optional feature
             - Clean-ups to improve readibility of the code
+    - v4.0.1 October 2025
+            - Major change: Change the infrastructure from numpy dictonary to Astropy Tables
 
 
 """
-__author__ = "J. den Brok"
-__version__ = "v3.1.1"
-__email__ = "jakob.den_brok@cfa.harvard.edu"
-__credits__ = ["L. Neumann","M. Jimenez-Donaire", "E. Rosolowsky","A. Leroy ", "I. Beslic"]
+__author__ = "J. den Brok & L. Neumann"
+__version__ = "v4.0.1"
+__email__ = "jadenbrok@mpia.de & lukas.neumann@eso.org"
+__credits__ = ["M. Jimenez-Donaire", "E. Rosolowsky","A. Leroy ", "I. Beslic"]
 
 
 import numpy as np
@@ -67,6 +69,8 @@ from astropy.io import fits
 from datetime import date, datetime
 import re
 import argparse
+from astropy.table import Table, Column
+from astropy import units as au
 today = date.today()
 date_str = today.strftime("%Y_%m_%d")
 import glob
@@ -78,134 +82,16 @@ from sampling import make_sampling_points
 from sampling_at_resol import sample_at_res, sample_mask
 from deproject import deproject
 from twod_header import twod_head
-from making_axes import make_axes  # LN: not actually used 
 from processing_spec import process_spectra
 from message_list import *
 from save_moment_maps import save_mom_to_fits
 
-#----------------------------------------------------------------------
-# Change these lines of code with correct directory and names
-#----------------------------------------------------------------------
 
-# <path to directory with the data files>
-data_dir = "data/"
-
-# <filename of geometry file>
-geom_file = "List_Files/geometry.txt"
-# <filename of band file>
-band_file = "List_Files/band_list.txt"
-# <filename of cube file>
-cube_file = "List_Files/cube_list.txt"
-# <filename of overlay or mask> #should be stored in data_dir
-overlay_file = "_12co21.fits"
-
-# <Output Directory for Dictionaries>
-out_dic = "Output/"
-
-# Set the target resolution for all data in arcseconds (if resolution set to angular)
-target_res = 27.
-
-
-#!!!!!!!!!!!!!Advanced------------------------------------------
-NAXIS_shuff = 200
-CDELT_SHUFF = 4000.  #m/s
-spacing_per_beam = 2 #default, use half beam spacing
-# give number (in units deg) or set to "auto"
-max_rad = "auto" #default extension of the map in deg (increase, if you map is larger)
-
-"""
-angular: use target_res in as
-physical: convert target_res (in pc) to as
-native: use the angular resolution of the overlay image
-"""
-resolution = 'angular'
-
-# Save the convolved cubes & bands
-save_fits = False
-
-"""
-Define which line to use as reference line for the spectral processing
-"first": use first line in cube_list as reference line
-"<LINE_NAME>": Use line name as reference line
-"all": Use all lines in cube for mask
-n: (integer) use first n lines as reference. n=0 is same result as "first".
-"ref+HI": Use first line and HI
-"""
-ref_line = "first"
-
-#define upper and lower mask threshold (S/N)
-SN_processing = [2,4]
-strict_mask= False
-#define SN threshold for Mom1, Mom2 and EW calculation (for individual lines)
-mom_thresh = 3
-conseq_channels = 3 #needs to integer more than 3
-#differentiate between "fwhm", "sqrt", or "math"
-# math: use mathematical definition
-# sqrt: take square-root of mom2
-# fwhm: convert sqrt(mom2) to fwhm
-mom2_method = "fwhm"
-
-
-"""
-Spectral smoothing
-
-"default": Do not perform any spectral smoothing
-"overlay": Perform spectral smoothing to spectral resolution of overlay cube
-n: float – convolve to spectral resolution n [km/s]
-"""
-spec_smooth = "default"
-
-"""
-define the way the spectral smoothing should be performed:
-"binned": binn channels together (to nearest integer of ratio theta_target/theta_nat)
-"gauss": perform convolution with gaussian kernel (theta_target^2-theta_nat^2)**0.5
-!!!! Warning, gaussian smoothing seems to systematicaly underestimate the rms by 10-15%
-"combined": do the binned smoothing first (to nearest integer ratio) and then the rest via Gauss
-"""
-spec_smooth_method = "binned"
-
-"""
-Define how pyStructure should be run
-- overwrite: A file will be created and overwritten if the PyStructure code is run
-- fill: When running the PyStructure code, opens an exisitng PyStructure and completes it with additional lines
-- archive: each run creates a new copy, ensuring archiving of all runs (not yet implemented)
-"""
-structure_creation ="overwrite"
-
-
-"""
-Save the created moment maps as fits file
-"""
-save_mom_maps = False
-
-#folder to save fits files in
-folder_savefits="./saved_FITS_files/"
-#---------------------------------------------------------------
 
 
 #----------------------------------------------------------------------
 # The function that generates an empty directory
 #----------------------------------------------------------------------
-def empire_record_header():
-    """
-    Make the first, general fields for an EMPIRE database record.
-    """
-
-    new_structure_empire = {
-    "source": '',
-    "ra_deg": None,
-    "dec_deg": None,
-    "dist_mpc": None,
-    "posang_deg": None,
-    "incl_deg": None,
-    "beam_as": None,
-    "rgal_as": None,
-    "rgal_kpc": None,
-    "rgal_r25": None,
-    "theta_rad": None
-    }
-
-    return new_structure_empire
 
 def fill_checker(fname, sample_coord, bands, cubes):
     """
@@ -216,20 +102,20 @@ def fill_checker(fname, sample_coord, bands, cubes):
     :param cubes
     """
 
-    this_data = np.load(fname,allow_pickle = True).item()
+    this_data = Table.read(fname)
 
     #Check 1: Enusre that the coordinates are identical (1e-12 to allow wiggle room due to rounding errors)
-    if abs(np.nansum(this_data['ra_deg']-sample_coord[0])) + abs(np.nansum(this_data['dec_deg']-sample_coord[1]))>1e-12:
+    if abs(np.nansum(this_data['ra_deg']-sample_coord[0]*au.deg)) + abs(np.nansum(this_data['dec_deg']-sample_coord[1]*au.deg))>1e-12*au.deg:
         raise ValueError('The PyStructure does not match. Please run code setting the "structure_creation" key to "overwrite"')
     
     #Check 2: Now check which bands and cubes 
     fill_bands = []
     for band_nm in bands["band_name"]:
-        if f'INT_VAL_{band_nm.upper()}' in  list(this_data.keys()):
+        if f'BAND_{band_nm.upper()}' in  list(this_data.keys()):
             fill_bands.append(band_nm)
     fill_cubes = []
     for cube_nm in cubes["line_name"]:
-        if f'INT_VAL_{cube_nm.upper()}' in  list(this_data.keys()):
+        if f'MOM0_{cube_nm.upper()}' in  list(this_data.keys()):
             fill_cubes.append(cube_nm)
     return this_data, fill_bands,fill_cubes
 
@@ -297,9 +183,6 @@ def create_database(just_source=None, quiet=False, conf=False):
     # -----------------------------------------------------------------
     # GENERATE THE EMPTY DATA STRUCTURE
     # -----------------------------------------------------------------
-    if quiet == False:
-        print(f'{"[INFO]":<10}', 'Generating (new) dictionary.')
-    empty_structure = empire_record_header()
 
     # Add the bands to the structure
     band_columns = ["band_name","band_desc", "band_unit",
@@ -307,12 +190,7 @@ def create_database(just_source=None, quiet=False, conf=False):
     bands = pd.read_csv(band_file, names = band_columns, sep='[\s,]{2,20}', comment="#")
 
     n_bands = len(bands["band_name"])
-    for ii in range(n_bands):
-        empty_structure = add_band_to_struct(struct=empty_structure,
-                                         band=bands["band_name"][ii],
-                                         unit=bands["band_unit"][ii],
-                                         desc=bands["band_desc"][ii])
-
+    
     if quiet == False:
         print(f'{"[INFO]":<10}', f'{n_bands} band(s) loaded into structure.')
 
@@ -322,18 +200,7 @@ def create_database(just_source=None, quiet=False, conf=False):
 
     cubes = pd.read_csv(cube_file, names = cube_columns, sep='[\s,]{2,20}', comment="#")
     n_cubes = len(cubes["line_name"])
-    for ii in range(n_cubes):
-        empty_structure = add_spec_to_struct(struct=empty_structure,
-                                         line=cubes["line_name"][ii],
-                                         unit=cubes["line_unit"][ii],
-                                         desc=cubes["line_desc"][ii])
 
-        # if we provide a cube for which we already have the 2D map, include it as a band
-        if not cubes["band_ext"].isnull()[ii]:
-            empty_structure = add_band_to_struct(struct=empty_structure,
-                                                    band=cubes["line_name"][ii],
-                                                    unit=cubes["line_unit"][ii]+"km/s",
-                                                    desc=cubes["line_desc"][ii])
 
     if quiet == False:
         print(f'{"[INFO]":<10}', f'{n_cubes} cube(s) loaded into structure.')
@@ -346,12 +213,6 @@ def create_database(just_source=None, quiet=False, conf=False):
         if quiet == False:
             print(f'{"[INFO]":<10}', f'No mask provided; will be constructed from prior line(s).')
     else:
-        empty_structure = add_spec_to_struct(struct=empty_structure,
-                                            line=input_mask["mask_name"][0],
-                                            desc=input_mask["mask_desc"][0])
-        # remove unit for mask
-        del empty_structure[f'SPEC_UNIT_{input_mask["mask_name"][0].upper()}']
-
         if quiet == False:
             if use_input_mask:
                 print(f'{"[INFO]":<10}', f'Input mask loaded into structure; will be used for products.')
@@ -430,8 +291,6 @@ def create_database(just_source=None, quiet=False, conf=False):
         #add slice of overlay
         overlay_slice_list.append(ov_cube[ov_hdr["NAXIS3"]//2,:,:])
 
-        this_vaxis_ov = make_axes(ov_hdr, vonly = True) # LN: variable not used
-        #mask = total(finite(hcn_cube),3) ge 1
         mask = np.sum(np.isfinite(ov_cube), axis = 0)>=1
         mask_hdr = twod_head(ov_hdr)
         overlay_hdr_list.append(mask_hdr)
@@ -454,16 +313,16 @@ def create_database(just_source=None, quiet=False, conf=False):
             res_suffix = str(target_res).split('.')[0]+'pc'
 
         #Define filename used to store the PyStructure
-        fname_dict = out_dic+this_source+"_data_struct_"+res_suffix+'_'+date_str+'.npy'
+        fname_dict = out_dic+this_source+"_data_struct_"+res_suffix+'_'+date_str+'.ecsv'
 
         if "archive" in structure_creation:
             #check if basic file already exists. Otherwise, start with version numbering
             if os.path.exists(fname_dict):
                 file_version=1
-                fname_dict = fname_dict[:-4]+f"_v{file_version}.npy"
+                fname_dict = fname_dict[:-4]+f"_v{file_version}.ecsv"
                 while os.path.exists(fname_dict):
                     file_version+=1
-                    fname_dict = out_dic+this_source+"_data_struct_"+res_suffix+'_'+date_str+f'_v{file_version}.npy'
+                    fname_dict = out_dic+this_source+"_data_struct_"+res_suffix+'_'+date_str+f'_v{file_version}.ecsv'
                 if quiet == False:
                     print(f'{"[INFO]":<10}', f'Creating file version v{file_version}.')
 
@@ -521,27 +380,23 @@ def create_database(just_source=None, quiet=False, conf=False):
         if 'fill' in structure_creation:
             this_data, fill_bands, fill_cubes = fill_checker(fname_dict, [samp_ra, samp_dec], bands, cubes) 
         else:
-            this_data = {}
+            this_data = Table()
 
-            #for n in range(n_pts):
-            for key in empty_structure.keys():
-                    #this_data.setdefault(key, []).append(empty_structure[key])
-                    this_data[key]=empty_structure[key]
+            #Define spectral axis of overlay cube
+            #ToDo: Implement check if CUNIT3 not available
+            unit_vaxis = ov_hdr["CUNIT3"]
+            this_data.meta['SPEC_VCHAN0'] = ov_hdr["CRVAL3"] * au.Unit(unit_vaxis)
+            this_data.meta['SPEC_DELTAV'] = ov_hdr["CDELT3"] * au.Unit(unit_vaxis)
+            this_data.meta['SPEC_CRPIX'] = ov_hdr["CRPIX3"]
 
-            this_tag_name = 'SPEC_VCHAN0'
-            this_data[this_tag_name] = ov_hdr["CRVAL3"]
-            this_tag_name = 'SPEC_DELTAV'
-            this_data[this_tag_name] = ov_hdr["CDELT3"]
-            this_tag_name = 'SPEC_CRPIX'
-            this_data[this_tag_name] = ov_hdr["CRPIX3"]
             # Some basic parameters for each galaxy:
-            this_data["source"] = this_source
-            this_data["ra_deg"] = samp_ra
-            this_data["dec_deg"] = samp_dec
-            this_data["dist_mpc"] = glxy_data["dist_mpc"][ii_list]
-            this_data["posang_deg"] = glxy_data["posang_deg"][ii_list]
-            this_data["incl_deg"] = glxy_data["incl_deg"][ii_list]
-            this_data["beam_as"] = target_res_as
+            this_data.meta["source"] = this_source
+            this_data["ra_deg"] = Column(samp_ra ,unit= au.deg, description='Right ascension (J2000)')
+            this_data["dec_deg"] = Column(samp_dec ,unit= au.deg, description='Declination (J2000)')
+            this_data.meta["dist_mpc"] = glxy_data["dist_mpc"][ii_list] * au.Mpc
+            this_data.meta["posang_deg"] = glxy_data["posang_deg"][ii_list] * au.deg
+            this_data.meta["incl_deg"] = glxy_data["incl_deg"][ii_list] * au.deg
+            this_data.meta["beam_as"] = target_res_as * au.arcsec
 
             # Convert to galactocentric cylindrical coordinates
             rgal_deg, theta_rad = deproject(samp_ra, samp_dec,
@@ -552,10 +407,10 @@ def create_database(just_source=None, quiet=False, conf=False):
                                         ], vector = True)
 
 
-            this_data["rgal_as"] = rgal_deg * 3600
-            this_data["rgal_kpc"] = np.deg2rad(rgal_deg)*this_data["dist_mpc"]*1e3
-            this_data["rgal_r25"] = rgal_deg/(glxy_data["r25"][ii_list]/60.)
-            this_data["theta_rad"] = theta_rad
+            this_data["rgal_as"] = Column(rgal_deg * 3600 , unit= au.arcsec, description='(deprojected) galactocentric radius')
+            this_data["rgal_kpc"] = Column((np.deg2rad(rgal_deg)*this_data.meta["dist_mpc"]).to(au.kpc), description='(deprojected) galactocentric radius')
+            this_data["rgal_r25"] = Column(rgal_deg/(glxy_data["r25"][ii_list]/60.),  description='(deprojected) galactocentric radius')
+            this_data["theta_rad"] = Column(theta_rad , unit= au.rad, description='(deprojected) polar coordinates angle')
 
         #---------------------------------------------------------------------
         # LOOP OVER MAPS, CONVOLVING AND SAMPLING
@@ -566,12 +421,6 @@ def create_database(just_source=None, quiet=False, conf=False):
                 if bands["band_name"][jj] in fill_bands:
                     continue
                 #need to add an entry into the PyStructure
-                else:
-                    this_data = add_band_to_struct(struct=this_data,
-                                         band=bands["band_name"][jj],
-                                         unit=bands["band_unit"][jj],
-                                         desc=bands["band_desc"][jj])
-                    
 
             #check if comma is in filename (in case no unc file is provided, but comma is left)
             if "," in bands["band_dir"][jj]:
@@ -601,23 +450,10 @@ def create_database(just_source=None, quiet=False, conf=False):
                                      perbeam = perbeam)
 
 
-            this_tag_name = 'INT_VAL_' + bands["band_name"][jj].upper()
-            if this_tag_name in this_data:
-                this_data[this_tag_name] = this_int
-            else:
-                print(f'{"[ERROR]":<10}', f'I had trouble matching tag {this_tag_name} to the database.')
-                continue
-
-            #; MJ: I AM ADDING THE CORRESPONDING UNITS
-
+            this_tag_name = 'BAND_' + bands["band_name"][jj].upper()
             this_unit = bands["band_unit"][jj]
-            this_tag_name = 'INT_UNIT_' + bands["band_name"][jj].upper()
-            if this_tag_name in this_data:
-                this_data[this_tag_name] = this_unit
-            else:
-                print(f'{"[ERROR]":<10}', f'I had trouble matching tag {this_tag_name} to the database.')
-                continue
-
+            this_data[this_tag_name] = Column(this_int , unit= au.Unit(this_unit), description=bands["band_desc"][jj])
+           
             #; MJ: ...AND ALSO THE UNCERTAINTIES FOR THE MAPS
             if  not isinstance(bands["band_uc"][jj], str):
                 print(f'{"[WARNING]":<10}', f'No uncertainty band {bands["band_name"][jj]} provided for {this_source}.')
@@ -635,13 +471,9 @@ def create_database(just_source=None, quiet=False, conf=False):
                                     target_hdr = ov_hdr,
                                     perbeam = perbeam,
                                     unc=True)
-            this_tag_name = 'INT_UC_'+bands["band_name"][jj].upper()
-            if this_tag_name in this_data:
-                this_data[this_tag_name] = this_uc
-            else:
-                print(f'{"[ERROR]":<10}', f'I had trouble matching tag {this_tag_name} to the database.')
-                continue
-
+            this_tag_name = 'EBAND_'+bands["band_name"][jj].upper()
+            this_data[this_tag_name] = Column(this_uc , unit= au.Unit(this_unit), description=f'Stats error on {bands["band_desc"][jj]}')
+            
 
         #---------------------------------------------------------------------
         # LOOP OVER CUBES, CONVOLVING AND SAMPLING
@@ -652,11 +484,6 @@ def create_database(just_source=None, quiet=False, conf=False):
             if 'fill' in structure_creation:
                 if cubes["line_name"][jj] in fill_cubes:
                     continue
-                else:
-                    this_data = add_spec_to_struct(struct=this_data,
-                                         line=cubes["line_name"][jj],
-                                         unit=cubes["line_unit"][jj],
-                                         desc=cubes["line_desc"][jj])
 
             this_line_file = cubes["line_dir"][jj] + this_source + cubes["line_ext"][jj]
 
@@ -686,16 +513,12 @@ def create_database(just_source=None, quiet=False, conf=False):
 
 
 
-            this_tag_name = 'SPEC_VAL_'+cubes["line_name"][jj].upper()
-            if this_tag_name in this_data:
-                this_data[this_tag_name] = this_spec
-            else:
-                print(f'{"[ERROR]":<10}', f'I had trouble matching tag {this_tag_name} to the database.')
-                continue
-
+            this_tag_name = 'SPEC_'+cubes["line_name"][jj].upper()
+            this_unit = cubes['line_unit'][jj]
+            this_data[this_tag_name] = Column(this_spec , unit= au.Unit(this_unit), description=f'{cubes["line_desc"][jj]} brightness temperature')
+            
             #this_line_hdr = fits.getheader(this_line_file)
 
-            this_vaxis = make_axes(this_hdr, vonly = True) # LN: variable not used
             sz_this_spec = np.shape(this_spec)
             n_chan = sz_this_spec[1]
 
@@ -735,13 +558,10 @@ def create_database(just_source=None, quiet=False, conf=False):
                                          perbeam = perbeam)
 
 
-                this_tag_name = 'INT_VAL_' + cubes["line_name"][jj].upper()
-                if this_tag_name in this_data:
-                    this_data[this_tag_name] = this_int
-                else:
-                    print(f'{"[ERROR]":<10}', f'I had trouble matching tag {this_tag_name} to the database.')
-                    continue
-
+                this_tag_name = 'BAND_' + cubes["line_name"][jj].upper()
+                this_unit = this_hdr['BUNIT']
+                this_data[this_tag_name] = this_int * au.Unit(this_unit)
+                
 
                 this_uc_file = cubes["line_dir"][jj] + this_source + str(cubes["band_uc"][jj])
                 if not path.exists(this_uc_file):
@@ -757,12 +577,9 @@ def create_database(just_source=None, quiet=False, conf=False):
                                         target_hdr = ov_hdr,
                                         perbeam = perbeam,
                                         unc = True)
-                this_tag_name = 'INT_UC_'+cubes["line_name"][jj].upper()
-                if this_tag_name in this_data:
-                    this_data[this_tag_name] = this_uc
-                else:
-                    print(f'{"[ERROR]":<10}', f'I had trouble matching tag {this_tag_name}to the database.')
-                    continue
+                this_tag_name = 'EBAND_'+cubes["line_name"][jj].upper()
+                this_data[this_tag_name] = this_uc * au.Unit(this_unit)
+                
             if not quiet:
                 print(f'{"[INFO]":<10}', f'Done with line {cubes["line_name"][jj]}.')
 
@@ -788,14 +605,10 @@ def create_database(just_source=None, quiet=False, conf=False):
                                             target_hdr = ov_hdr)
 
             # add to database
-            this_tag_name = 'SPEC_VAL_'+input_mask["mask_name"][0].upper()
-            if this_tag_name in this_data:
-                this_data[this_tag_name] = this_spec
-            else:
-                print(f'{"[ERROR]":<10}', f'I had trouble matching tag {this_tag_name} to the database.')
-                continue
+            this_tag_name = 'SPEC_'+input_mask["mask_name"][0].upper()
+            this_data[this_tag_name] = Column(this_spec ,unit= au.dimensionless_unscaled, description='User-provided velocity-integration mask (used for integrated products)')
+            
 
-            # this_vaxis = make_axes(this_hdr, vonly = True) # LN: variable not used
             sz_this_spec = np.shape(this_spec)
             n_chan = sz_this_spec[1]
 
@@ -808,8 +621,7 @@ def create_database(just_source=None, quiet=False, conf=False):
                 print(f'{"[INFO]":<10}', f'Done with mask.')
 
         
-        np.save(fname_dict, this_data)
-
+        this_data.write(fname_dict, format='ascii.ecsv', overwrite=True)
     #---------------------------------------------------------------------
     # NOW PROCESS THE SPECTRA
     #---------------------------------------------------------------------
@@ -818,9 +630,8 @@ def create_database(just_source=None, quiet=False, conf=False):
             print(f'{"[INFO]":<10}', 'Start processing spectra; using input mask.')
         else:
             print(f'{"[INFO]":<10}', 'Start processing spectra.')
-            
-    process_spectra(glxy_data,
-                    galaxy_list,
+     
+    process_spectra(galaxy_list,
                     cubes,fnames,
                     [NAXIS_shuff, CDELT_SHUFF],
                     run_success,
@@ -831,7 +642,7 @@ def create_database(just_source=None, quiet=False, conf=False):
                     use_input_mask, 
                     [mom_thresh,conseq_channels,mom2_method],
                     )
-
+  
     #Open the PyStructure and Save as FITS File
     if save_mom_maps:
         #create a folder to save
