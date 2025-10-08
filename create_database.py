@@ -1,11 +1,11 @@
 """
-This routine generates a dictionary, similar to  the struct in idl.
+This routine generates a database, similar to the struct in idl.
 Several side functions are part of this routine.
 The original routine was wrirtten in idl (see create_database.pro)
 
-The output is a dictionary saved as an .npy file. To open it in a new python
-script use for example:
-
+The output is an astropy table saved as an .ecsv file. To open it in a new 
+python script use for example:
+#### TBD: CHANGE TO ASTROPY TABLE
     > read_dictionary = np.load('datafile.npy',allow_pickle = True).item()
     > ra_samp = read_dictionary["ra_deg"]
     > dec_samp = read_dictionary["dec_deg"]
@@ -13,7 +13,8 @@ script use for example:
     > plt.scatter(ra_samp, dec_samp, c = intensity, marker = "h")
 
 MODIFICATION HISTORY
-    -   v1.0.1 16-22 October 2019: Conversion from IDL to Python
+
+    - v1.0.1 16-22 October 2019: Conversion from IDL to Python
         Minor changes implemented
         ToDo:
             - now can only read in (z,x,y) cubes, but should be flexible to
@@ -32,32 +33,42 @@ MODIFICATION HISTORY
 
     - v2.0.0 January 2022
             - Implemented config file: You can run the PyStructure using a single config file
+
     - v2.0.1. January 2022
             - Automatically determine the max radius for the sampling points
+
     - v2.1.0. July 2022
             - Include Spectral Smooting and Convolving for data with significantly different spectral resolution.
+
     - v2.1.1. October 2022
             - Save moment maps as fits file
+
     - v3.0.0. August 2023
             - Clean up: Remove unnecessary keys
             - Improve masking -> Remove spurious spatial spikes
+
     - v3.0.1 January 2024
             - Fix error map convolution handeling
+
     - v3.1.0 July 2025
             - Merge publishes version with Uni Bonn version
             - Implement feature to complete PyStructre
+
     - v3.1.1 September 2025
             - Input velocity-integration mask as optional feature
             - Clean-ups to improve readibility of the code
+
     - v4.0.1 October 2025
             - Major change: Change the infrastructure from numpy dictonary to Astropy Tables
 
+    - v4.1.0 October 2025
+            - New (optional) feature: Masking of fine structure lines
 
 """
 __author__ = "J. den Brok & L. Neumann"
-__version__ = "v4.0.1"
+__version__ = "v4.1.0"
 __email__ = "jadenbrok@mpia.de & lukas.neumann@eso.org"
-__credits__ = ["M. Jimenez-Donaire", "E. Rosolowsky","A. Leroy ", "I. Beslic"]
+__credits__ = ["M. Jimenez-Donaire", "E. Rosolowsky", "A. Leroy ", "I. Beslic"]
 
 
 import numpy as np
@@ -155,31 +166,31 @@ def create_temps(conf_file):
 def create_database(just_source=None, quiet=False, conf=False):
     """
     Function that generates a python dictionary containing a hexagonal grid.
-    :param just_source: String name of a source, if one wants only one galaxy
+    :param just_source: String name of a source, if one wants only one source
     :param quiet: Verbosity set to mute
     :param conf: Config File provided
     :return database: python dictionary
     """
 
     if quiet == False:
-        print(f'{"[INFO]":<10}', 'Reading in galaxy parameters.')
-    names_glxy = ["galaxy", "ra_ctr", "dec_ctr", "dist_mpc", "e_dist_mpc",
+        print(f'{"[INFO]":<10}', 'Reading in source parameters.')
+    names_source = ["source", "ra_ctr", "dec_ctr", "dist_mpc", "e_dist_mpc",
                   "incl_deg", "e_incl_deg","posang_deg", "e_posang_deg",
                   "r25", "e_r25"]
-    glxy_data = pd.read_csv(geom_file, sep = "\t",names = names_glxy,
+    source_data = pd.read_csv(geom_file, sep = "\t",names = names_source,
                             comment = "#")
 
     #define list of sources (need to differentiate between conf file input and default)
     if conf:
         if isinstance(sources, tuple):
-            galaxy_list = list(sources)
+            source_list = list(sources)
         else:
-            galaxy_list = [sources]
+            source_list = [sources]
 
     else:
-        galaxy_list = list(glxy_data["galaxy"])
+        source_list = list(source_data["source"])
 
-    n_sources = len(galaxy_list)
+    n_sources = len(source_list)
     # -----------------------------------------------------------------
     # GENERATE THE EMPTY DATA STRUCTURE
     # -----------------------------------------------------------------
@@ -225,25 +236,25 @@ def create_database(just_source=None, quiet=False, conf=False):
     #-----------------------------------------------------------------
 
     #additional parameters
-    run_success = [True]*n_sources #keep track if run succesfull for each galaxy
-    fnames=[""]*n_sources   #filename save for galaxy
+    run_success = [True]*n_sources #keep track if run succesfull for each source
+    fnames=[""]*n_sources   #filename save for source
     overlay_hdr_list = []
     overlay_slice_list = []
 
     for ii in range(n_sources):
-        #if config file provided, use the list of galaxies provided therein
+        #if config file provided, use the list of sources provided therein
 
-        this_source = galaxy_list[ii]
+        this_source = source_list[ii]
 
-        if not this_source in list(glxy_data["galaxy"]):
+        if not this_source in list(source_data["source"]):
             run_success[ii]=False
 
-            print(f'{"[ERROR]":<10}', f'{this_source} not in galaxy table.')
+            print(f'{"[ERROR]":<10}', f'{this_source} not in source table.')
 
             continue
 
-        #assign correct index of list and input galaxy (relevant for index file)
-        ii_list = np.where(np.array(glxy_data["galaxy"])==this_source)[0][0]
+        #assign correct index of list and input source (relevant for index file)
+        ii_list = np.where(np.array(source_data["source"])==this_source)[0][0]
 
 
         if not just_source is None:
@@ -297,7 +308,7 @@ def create_database(just_source=None, quiet=False, conf=False):
         if resolution == 'native':
             target_res_as = np.max([ov_hdr['BMIN'], ov_hdr['BMAJ']]) * 3600
         elif resolution == 'physical':
-            target_res_as = 3600 * 180/np.pi * 1e-6 * target_res / glxy_data['dist_mpc'][ii_list]
+            target_res_as = 3600 * 180/np.pi * 1e-6 * target_res / source_data['dist_mpc'][ii_list]
         elif resolution == 'angular':
             target_res_as = target_res
         else:
@@ -358,8 +369,8 @@ def create_database(just_source=None, quiet=False, conf=False):
         spacing = target_res_as / 3600. / spacing_per_beam
 
         samp_ra, samp_dec = make_sampling_points(
-                             ra_ctr = glxy_data["ra_ctr"][ii_list],
-                             dec_ctr = glxy_data["dec_ctr"][ii_list],
+                             ra_ctr = source_data["ra_ctr"][ii_list],
+                             dec_ctr = source_data["dec_ctr"][ii_list],
                              max_rad = max_rad,
                              spacing = spacing,
                              mask = mask,
@@ -389,27 +400,27 @@ def create_database(just_source=None, quiet=False, conf=False):
             this_data.meta['SPEC_DELTAV'] = ov_hdr["CDELT3"] * au.Unit(unit_vaxis)
             this_data.meta['SPEC_CRPIX'] = ov_hdr["CRPIX3"]
 
-            # Some basic parameters for each galaxy:
+            # Some basic parameters for each source:
             this_data.meta["source"] = this_source
             this_data["ra_deg"] = Column(samp_ra ,unit= au.deg, description='Right ascension (J2000)')
             this_data["dec_deg"] = Column(samp_dec ,unit= au.deg, description='Declination (J2000)')
-            this_data.meta["dist_mpc"] = glxy_data["dist_mpc"][ii_list] * au.Mpc
-            this_data.meta["posang_deg"] = glxy_data["posang_deg"][ii_list] * au.deg
-            this_data.meta["incl_deg"] = glxy_data["incl_deg"][ii_list] * au.deg
+            this_data.meta["dist_mpc"] = source_data["dist_mpc"][ii_list] * au.Mpc
+            this_data.meta["posang_deg"] = source_data["posang_deg"][ii_list] * au.deg
+            this_data.meta["incl_deg"] = source_data["incl_deg"][ii_list] * au.deg
             this_data.meta["beam_as"] = target_res_as * au.arcsec
 
             # Convert to galactocentric cylindrical coordinates
             rgal_deg, theta_rad = deproject(samp_ra, samp_dec,
-                                        [glxy_data["posang_deg"][ii_list],
-                                         glxy_data["incl_deg"][ii_list],
-                                         glxy_data["ra_ctr"][ii_list],
-                                         glxy_data["dec_ctr"][ii_list]
+                                        [source_data["posang_deg"][ii_list],
+                                         source_data["incl_deg"][ii_list],
+                                         source_data["ra_ctr"][ii_list],
+                                         source_data["dec_ctr"][ii_list]
                                         ], vector = True)
 
 
             this_data["rgal_as"] = Column(rgal_deg * 3600 , unit= au.arcsec, description='(deprojected) galactocentric radius')
             this_data["rgal_kpc"] = Column((np.deg2rad(rgal_deg)*this_data.meta["dist_mpc"]).to(au.kpc), description='(deprojected) galactocentric radius')
-            this_data["rgal_r25"] = Column(rgal_deg/(glxy_data["r25"][ii_list]/60.),  description='(deprojected) galactocentric radius')
+            this_data["rgal_r25"] = Column(rgal_deg/(source_data["r25"][ii_list]/60.),  description='(deprojected) galactocentric radius')
             this_data["theta_rad"] = Column(theta_rad , unit= au.rad, description='(deprojected) polar coordinates angle')
 
         #---------------------------------------------------------------------
@@ -444,7 +455,7 @@ def create_database(just_source=None, quiet=False, conf=False):
                                      target_hdr = ov_hdr,
                                      show = False,
                                      line_name =bands["band_name"][jj],
-                                     galaxy =this_source,
+                                     source =this_source,
                                      path_save_fits = data_dir,
                                      save_fits = save_fits,
                                      perbeam = perbeam)
@@ -505,7 +516,7 @@ def create_database(just_source=None, quiet=False, conf=False):
                                       target_res_as = target_res_as,
                                       target_hdr = ov_hdr,
                                       line_name =cubes["line_name"][jj],
-                                      galaxy =this_source,
+                                      source =this_source,
                                       path_save_fits = data_dir,
                                       save_fits = save_fits,
                                       perbeam = perbeam,
@@ -552,7 +563,7 @@ def create_database(just_source=None, quiet=False, conf=False):
                                          target_hdr = ov_hdr,
                                          show = False,
                                          line_name =cubes["line_name"][jj],
-                                         galaxy =this_source,
+                                         source =this_source,
                                          path_save_fits = data_dir,
                                          save_fits = save_fits,
                                          perbeam = perbeam)
@@ -631,7 +642,7 @@ def create_database(just_source=None, quiet=False, conf=False):
         else:
             print(f'{"[INFO]":<10}', 'Start processing spectra.')
      
-    process_spectra(galaxy_list,
+    process_spectra(source_list,
                     cubes,fnames,
                     [NAXIS_shuff, CDELT_SHUFF],
                     run_success,
@@ -655,7 +666,7 @@ def create_database(just_source=None, quiet=False, conf=False):
         #iterate over the individual sources
         save_mom_to_fits(fnames,
                          cubes,
-                         galaxy_list,
+                         source_list,
                          run_success,
                          overlay_hdr_list,
                          overlay_slice_list,
