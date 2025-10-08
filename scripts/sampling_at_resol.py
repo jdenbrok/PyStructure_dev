@@ -38,7 +38,7 @@ def sample_at_res(in_data,
                   show = False,  # LN: not used in the function (delete?)
                   #advanced parameters
                   line_name = "",
-                  galaxy = "",
+                  source = "",
                   save_fits = False,
                   path_save_fits = "",
                   perbeam = False,
@@ -247,7 +247,7 @@ def sample_at_res(in_data,
             out_header["BMAJ"]=target_res_as/3600
             out_header["BMIN"]=target_res_as/3600
             out_header["LINE"]=line_name
-            fits.writeto(path_save_fits+galaxy+'_'+str(line_name)+'_{}as.fits'.format(target_res_as), data=data_out, header=out_header, overwrite=True)
+            fits.writeto(path_save_fits+source+'_'+str(line_name)+'_{}as.fits'.format(target_res_as), data=data_out, header=out_header, overwrite=True)
             print(f'{"[INFO]":<10}', 'Convolved fits file has been saved.')
 
     else:
@@ -317,7 +317,7 @@ def sample_mask(in_data,
                 #   show = False,  # LN: not used in the function (delete?)
                   #advanced parameters
                 #   line_name = "",
-                #   galaxy = "",
+                #   source = "",
                 #   save_fits = False,
                 #   path_save_fits = "",
                 #   perbeam = False,
