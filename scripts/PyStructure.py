@@ -13,7 +13,8 @@ from astropy.wcs import WCS
 from astropy.constants import L_sun
 from astropy.io import fits
 from trans_array_to_map import *
-
+from astropy.table import Table, Column
+from astropy import units as au
 
 class PyStructure:
     #store the linenames
@@ -22,14 +23,20 @@ class PyStructure:
         """
         :param path: String path to the .npy database
         """
-        self.struct = np.load(path, allow_pickle = True).item()
 
+        #Differenciate between dictionary and Astropy Table
+        if ".npy" in path[-5:]:
+            self.struct = np.load(path, allow_pickle = True).item()
+            self.struct_type = 'numpy_dict'
+        else:
+            self.struct = Table.read(path)
+            self.struct_type = 'astro_table'
         # initiate the linenames
         self.lines = []
         self.assign_lines()
 
-        self.rgal = self.struct["rgal_kpc"]
-        self.theta = self.struct["theta_rad"] + np.pi
+        self.rgal = np.array(self.struct["rgal_kpc"])
+        self.theta = np.array(self.struct["theta_rad"]) + np.pi
 
     def assign_lines(self):
         #generate keyword that holds the linenames
@@ -39,6 +46,8 @@ class PyStructure:
         for key in self.struct.keys():
             if "SPEC_VAL_SHUFF" in key:
                 self.lines.append(key.split("SHUFF")[-1])
+            elif "SPEC_SHUFF" in key:
+                self.lines.append(key.split("SHUFF")[-1])
 
     def get_coordinates(self, center = None):
         """
@@ -47,8 +56,8 @@ class PyStructure:
                        Need to be profided as string. E.g. "13:29:52.7 47:11:43"
         """
 
-        ra = self.struct["ra_deg"]
-        dec = self.struct["dec_deg"]
+        ra = np.array(self.struct["ra_deg"])
+        dec = np.array(self.struct["dec_deg"])
 
         if center is None:
             return ra, dec
@@ -121,14 +130,20 @@ class PyStructure:
                 vdelt = self.struct["SPEC-DELTAV_SHUFF12CO32"+ref_line]
                 naxis3 = len(self.struct["SPEC_VAL_SHUFF"+ref_line][0])
             except:
-                return self.struct["SPEC_VAXISSHUFF"]
+                if self.struct_type == 'astro_table':
+                    return self.struct["SPEC_VAXISSHUFF"][0]
+                else:
+                    return self.struct["SPEC_VAXISSHUFF"]
         else:
             try:
                 vchan0 = self.struct["SPEC_VCHAN0_"+ref_line]
                 vdelt = self.struct["SPEC_DELTAV_"+ref_line]
                 naxis3 = len(self.struct["SPEC_VAL_"+ref_line][0])
             except:
-                return self.struct["SPEC_VAXIS"]
+                if self.struct_type == 'astro_table':
+                    return self.struct["SPEC_VAXIS"][0]
+                else:
+                    return self.struct["SPEC_VAXIS"]
         vaxis = np.arange(naxis3)*vdelt+vchan0
 
         return vaxis

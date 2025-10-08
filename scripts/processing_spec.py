@@ -7,18 +7,20 @@ from mom_computer import get_mom_maps
 from structure_addition import *
 from shuffle_spec import *
 
+from astropy.table import Table, Column
+from astropy import units as au
 
 def construct_mask(ref_line, this_data, SN_processing):
     """
     Function to construct the mask based on high and low SN cut
     """
-    ref_line_data = this_data["SPEC_VAL_"+ref_line]
+    ref_line_data = this_data["SPEC_"+ref_line]
     n_pts = np.shape(ref_line_data)[0]
     n_chan = np.shape(ref_line_data)[1]
 
-    line_vaxis = this_data['SPEC_VCHAN0']+(np.arange(n_chan)-(this_data['SPEC_CRPIX']-1))*this_data['SPEC_DELTAV']
+    line_vaxis = this_data.meta['SPEC_VCHAN0']+(np.arange(n_chan)-(this_data.meta['SPEC_CRPIX']-1))*this_data.meta['SPEC_DELTAV']
 
-    line_vaxis = line_vaxis/1000 #to km/s
+    line_vaxis = line_vaxis.to(au.km/au.s) #to km/s
     #Estimate rms
     rms = median_absolute_deviation(ref_line_data, axis = None, ignore_nan = True)
     rms = median_absolute_deviation(ref_line_data[np.where(ref_line_data<3*rms)], ignore_nan = True)
@@ -47,8 +49,8 @@ def construct_mask(ref_line, this_data, SN_processing):
         mask = np.array(((mask + np.roll(mask, 1, 1) + np.roll(mask, -1, 1)) >= 1), dtype = int)
     
     # Derive the ref line mean velocity
-    line_vmean = np.zeros(n_pts)*np.nan
-
+    line_vmean = np.zeros(n_pts)*np.nan * au.km / au.s
+    mask *=au.dimensionless_unscaled
     for jj in range(n_pts):
         line_vmean[jj] = np.nansum(line_vaxis * ref_line_data[jj,:]*mask[jj,:])/ \
                        np.nansum(ref_line_data[jj,:]*mask[jj,:])
@@ -58,21 +60,19 @@ def construct_mask(ref_line, this_data, SN_processing):
 def dist(ra, dec, ra_c, dec_c):
     return np.sqrt((ra-ra_c)**2+(dec-dec_c)**2)
     
-def process_spectra(sources_data,  # LN: variable not used
-                    source_list,
+def process_spectra(source_list,
                     lines_data,
                     fname,shuff_axis,
                     run_success,
                     ref_line_method,
                     SN_processing,
                     strict_mask,
-                    input_mask = None, # newly added
-                    use_input_mask = False,  # newly added
+                    input_mask = None,
+                    use_input_mask = False, 
                     mom_calc = [3, 3, "fwhm"],
                     just_source = None
                     ):
     """
-    :param sources_data: Pandas DataFrame which is the geometry.txt file
     :param lines_data:   Pandas DataFrame which is the cubes_list.txt
     """
     
@@ -102,9 +102,9 @@ def process_spectra(sources_data,  # LN: variable not used
         print(f'Source: {this_source}')
         print("----------------------------------")
 
-        this_data = np.load(fname[ii],allow_pickle = True).item()
+        this_data = Table.read(fname[ii])
         tags = this_data.keys()
-        n_chan = np.shape( this_data["SPEC_VAL_"+ref_line])[1]
+        n_chan = np.shape(this_data["SPEC_"+ref_line])[1]
         #--------------------------------------------------------------
         #  Build a mask based on reference line(s)
         #--------------------------------------------------------------
@@ -116,12 +116,10 @@ def process_spectra(sources_data,  # LN: variable not used
 
             # use input mask
             # mask = this_data["SPEC_VAL_MASK"]
-            mask = this_data[f'SPEC_VAL_{input_mask["mask_name"][0].upper()}']
+            mask = this_data[f'SPEC_{input_mask["mask_name"][0].upper()}']
 
             # clean up database
-            del this_data[f'SPEC_VAL_{input_mask["mask_name"][0].upper()}']
-            del this_data[f'SPEC_DESC_{input_mask["mask_name"][0].upper()}']
-            # del this_data["SPEC_DESC_MASK"]
+            del this_data[f'SPEC_{input_mask["mask_name"][0].upper()}']
 
             # take reference velocity and vaxis from reference line
             _, ref_line_vmean, ref_line_vaxis = construct_mask(ref_line, this_data, SN_processing)
@@ -129,7 +127,7 @@ def process_spectra(sources_data,  # LN: variable not used
         else:
             # Use function for mask
             mask, ref_line_vmean, ref_line_vaxis = construct_mask(ref_line, this_data, SN_processing)
-            this_data["SPEC_MASK_"+ref_line]= mask
+            this_data["SPEC_MASK_"+ref_line]= Column(mask, unit=au.dimensionless_unscaled, description='Velocity-integration mask for {ref_line}')
             #this_data["INT_VAL_V"+ref_line] = ref_line_vmean
 
             #check if all lines used as reference line
@@ -144,7 +142,7 @@ def process_spectra(sources_data,  # LN: variable not used
                 for n_mask_i in range(1,n_mask+1):
                     line_i = lines_data["line_name"][n_mask_i].upper()
                     mask_i, ref_line_vmean_i, ref_line_vaxis_i = construct_mask(line_i, this_data, SN_processing)
-                    this_data["SPEC_MASK_"+line_i]= mask_i
+                    this_data["SPEC_MASK_"+line_i]= Column(mask_i, unit=au.dimensionless_unscaled,  description='Velocity-integration mask for {line_i}')
                     #this_data["INT_VAL_V"+line_i] = ref_line_vmean_i
 
                     # add mask to existing mask
@@ -185,7 +183,7 @@ def process_spectra(sources_data,  # LN: variable not used
             
                             dist_array=dist(ra, dec, ra[n], dec[n])
                             #check out neighbours
-                            idx_neigh=np.where(abs(dist_array-sep)<0.1*this_data["beam_as"]/3600)
+                            idx_neigh=np.where(abs(dist_array-sep)<0.1*this_data.meta["beam_as"].to(au.deg))
                             #check if labels have already been given (except 0 or -99)
                             labels_given=np.unique(mask_labels[idx_neigh])
                             index = labels_given[labels_given>0]
@@ -205,8 +203,8 @@ def process_spectra(sources_data,  # LN: variable not used
                             mask[:,jj][np.where(mask_labels==lab)]=0
 
         #store the mask in the PyStructure
-        this_data["SPEC_MASK"]= mask
-        this_data["INT_VAL_VSHUFF"] = ref_line_vmean
+        this_data["SPEC_MASK"]= Column(mask, unit=au.dimensionless_unscaled, description='Velocity-integration mask (used for integrated products)')
+        #this_data["INT_VAL_VSHUFF"] = ref_line_vmean #JdB: remove, not needed in final product
 
         #-------------------------------------------------------------------
         # Apply the CO-based mask to the EMPIRE lines and shuffle them
@@ -216,24 +214,12 @@ def process_spectra(sources_data,  # LN: variable not used
         for jj in range(n_lines):
             line_name = lines_data["line_name"][jj].upper()
 
-            # need to add band structure, if the 2D was not yet provided
-            if lines_data["band_ext"].isnull()[jj]:
-                this_data = add_band_to_struct(struct = this_data, \
-                                           band = line_name,\
-                                           unit = 'K km/s', \
-                                           desc = line_name + ' Shuffled by '+ref_line)
+            
 
-            this_data = add_spec_to_struct(struct= this_data, \
-                                           line = "SHUFF"+line_name,\
-                                           unit = "K",\
-                                           desc = line_name + ' Shuffled by '+ref_line,\
-                                           n_chan = n_chan_new)
-
-
-            if not 'SPEC_VAL_'+line_name in this_data.keys():
+            if not 'SPEC_'+line_name in this_data.keys():
                 print(f'{"[ERROR]":<10}', f'Tag for line {line_name} not found. Proceeding.')
                 continue
-            this_spec = this_data['SPEC_VAL_'+line_name]
+            this_spec = this_data['SPEC_'+line_name]
             if np.nansum(this_spec, axis = None)==0:
                 print(f'{"[ERROR]":<10}', f'Line {line_name} appears empty. Skipping.')
                 continue
@@ -241,12 +227,12 @@ def process_spectra(sources_data,  # LN: variable not used
             dim_sz = np.shape(this_spec)
             n_pts = dim_sz[0]
             n_chan = dim_sz[1]
-            this_v0 = this_data["SPEC_VCHAN0"]
-            this_deltav = this_data["SPEC_DELTAV"]
-            this_crpix = this_data["SPEC_CRPIX"]
+            this_v0 = this_data.meta["SPEC_VCHAN0"]
+            this_deltav = this_data.meta["SPEC_DELTAV"]
+            this_crpix = this_data.meta["SPEC_CRPIX"]
             
-            this_vaxis = (this_v0 + (np.arange(n_chan)-(this_crpix-1))*this_deltav)/1000 #to km/s
-            this_data["SPEC_VAXIS"] = this_vaxis
+            this_vaxis = (this_v0 + (np.arange(n_chan)-(this_crpix-1))*this_deltav).to(au.km/au.s) #to km/s
+            this_data["SPEC_VAXIS"] = Column(np.array([this_vaxis]*n_pts), unit=au.km/au.s,description='Velocity axis')
 
             shuffled_mask = shuffle(spec = mask, \
                                     vaxis = ref_line_vaxis,\
@@ -258,54 +244,49 @@ def process_spectra(sources_data,  # LN: variable not used
             mom_maps = get_mom_maps(this_spec, shuffled_mask,this_vaxis, mom_calc)
 
             # Save in structure
+            line_desc = lines_data["line_desc"][jj]
             if lines_data["band_ext"].isnull()[jj]:
-
-                tag_ii = "INT_VAL_"+line_name
-                tag_uc = "INT_UC_" + line_name
                 
-                tag_tpeak = "INT_TPEAK_" + line_name
-                tag_rms = "INT_RMS_" + line_name
                 
-                tag_mom1 = "INT_MOM1_" + line_name
-                tag_mom1_err = "INT_EMOM1_" + line_name
+                tag_ii = "MOM0_"+line_name
+                tag_uc = "EMOM0_" + line_name
+                
+                tag_tpeak = "TPEAK_" + line_name
+                tag_rms = "RMS_" + line_name
+                
+                tag_mom1 = "MOM1_" + line_name
+                tag_mom1_err = "EMOM1_" + line_name
                 
                 #Note that Mom2 corresponds to a FWHM
-                tag_mom2 = "INT_MOM2_" + line_name
-                tag_mom2_err = "INT_EMOM2_" + line_name
+                tag_mom2 = "MOM2_" + line_name
+                tag_mom2_err = "EMOM2_" + line_name
                 
-                tag_ew = "INT_EW_" + line_name
-                tag_ew_err = "INT_EEW_" + line_name
+                tag_ew = "EW_" + line_name
+                tag_ew_err = "EEW_" + line_name
                 
                 # store the different calculations
-                this_data[tag_ii] = mom_maps["mom0"]
-                this_data[tag_uc] = mom_maps["mom0_err"]
-                this_data[tag_tpeak] = mom_maps["tpeak"]
-                this_data[tag_rms] = mom_maps["rms"]
-                this_data[tag_mom1] = mom_maps["mom1"]
-                this_data[tag_mom1_err] = mom_maps["mom1_err"]
-                this_data[tag_mom2] = mom_maps["mom2"]
-                this_data[tag_mom2_err] = mom_maps["mom2_err"]
+                this_data[tag_ii] = Column(mom_maps["mom0"], description=f'{line_desc} integrated intensity (moment-0)')
+                this_data[tag_uc] = Column(mom_maps["mom0_err"], description=f'Propagated statistical error {line_desc} integrated intensity (moment-0)')
+                this_data[tag_tpeak] =Column( mom_maps["tpeak"], description=f'{line_desc} peak brightness temperature')
+                this_data[tag_rms] = Column(mom_maps["rms"], description=f'Statistical error {line_desc} peak brightness temperature')
+                this_data[tag_mom1] = Column(mom_maps["mom1"], description=f'{line_desc} mean velocity (moment-1)')
+                this_data[tag_mom1_err] = Column(mom_maps["mom1_err"], description=f'Propagated statistical error {line_desc} mean velocity (moment-1)')
+                this_data[tag_mom2] = Column(mom_maps["mom2"], description=f'{line_desc} velocity dispersion (moment-2; {mom_calc[2]} definition)')
+                this_data[tag_mom2_err] = Column(mom_maps["mom2_err"], description=f'Propagated statistical error {line_desc} velocity dispersion (moment-2; {mom_calc[2]} definition)')
                 
-                this_data[tag_ew] = mom_maps["ew"]
-                this_data[tag_ew_err] = mom_maps["ew_err"]
+                this_data[tag_ew] = Column(mom_maps["ew"], description=f'{line_desc} equivalent width (Gaussian approx)')
+                this_data[tag_ew_err] = Column(mom_maps["ew_err"], description=f'Propagated statistical error {line_desc} equivalent width (Gaussian approx)')
                 
-                #-------------------------------------------------
-                #!!!!!!!! Will be depricated in future update!!!!!
-                #tag_tpeak_dep = "SPEC_TPEAK_" + line_name
-                #tag_rms_dep = "SPEC_RMS_" + line_name
-                #this_data[tag_tpeak_dep] = mom_maps["tpeak"]
-                #this_data[tag_rms_dep] = mom_maps["rms"]
-                #-------------------------------------------------
             else:
                 print(f'{"[INFO]":<10}', f'Intensity Map for {lines_data["line_name"][jj]} already provided. Skipping.')
 
             #Shuffle the line
             #;- DC modify 02 march 2017: define a reference velocity axis
             #;-   this_deltav varies from dataset to dataset (fixing bug for inverted CO21 vaxis)
-            cdelt = shuff_axis[1]
+            cdelt = shuff_axis[1]* au.m / au.s
             naxis_shuff = int(shuff_axis[0])
             new_vaxis = cdelt * (np.arange(naxis_shuff)-naxis_shuff/2)
-            new_vaxis=new_vaxis/1000 #to km/s
+            new_vaxis=new_vaxis.to(au.km / au.s) #to km/s
 
             shuffled_line = shuffle(spec = this_spec,\
                                     vaxis = this_vaxis,\
@@ -313,19 +294,20 @@ def process_spectra(sources_data,  # LN: variable not used
                                     new_vaxis = new_vaxis,\
                                     interp = 0)
 
-            tag_i = "SPEC_VAL_SHUFF" + line_name
+            tag_i = "SPEC_SHUFF" + line_name
             tag_v0 = "SPEC_VCHAN0_SHUFF"
             tag_deltav = "SPEC_DELTAV_SHUFF"
 
 
-            this_data[tag_i] = shuffled_line
-            this_data[tag_v0] = new_vaxis[0]
-            this_data[tag_deltav] = (new_vaxis[1] - new_vaxis[0])
+            this_data[tag_i] = Column(shuffled_line, unit=this_spec.unit,description=f'Shuffled {line_desc} brightness temperature')
+            this_data.meta[tag_v0] = new_vaxis[0]
+            this_data.meta[tag_deltav] = (new_vaxis[1] - new_vaxis[0])
 
-            this_data["SPEC_VAXISSHUFF"] = new_vaxis
+            this_data["SPEC_VAXISSHUFF"] = Column(np.array([new_vaxis]*n_pts), unit=au.km/au.s, description="Shuffled Velocity Axis")
         
-        this_data["SPEC_CRPIX_SHUFF"] = 1
-        np.save(fname[ii], this_data)
+
+        this_data.meta["SPEC_CRPIX_SHUFF"] = 1
+        this_data.write(fname[ii], format='ascii.ecsv', overwrite=True)
 
 
         # /__

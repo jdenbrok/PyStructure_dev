@@ -7,6 +7,8 @@ from scipy.interpolate import griddata
 from reproject import reproject_interp
 from astropy.io import fits
 import copy
+from astropy.table import Table
+from astropy import units as au
 
 def sample_to_hdr(in_data,  # input data on hexagonal grid (ra_samp, dec_samp)
                   ra_samp,  # right ascension of hexagonal pixels
@@ -97,7 +99,7 @@ def save_to_fits(ra,
                  folder,
                  target_res):
 
-    data_in = copy.deepcopy(this_data["INT_"+key+"_"+line.upper()])
+    data_in = copy.deepcopy(this_data[key+"_"+line.upper()])
     
     map_cartesian = sample_to_hdr(data_in,
                                            ra,
@@ -142,7 +144,7 @@ def save_mom_to_fits(fname,
         this_source = source_list[ii]
             
         #load the PyStructure
-        this_data = np.load(fname[ii],allow_pickle = True).item()
+        this_data = Table.read(fname[ii])
         
         #load the coordinates
         ra_deg = this_data["ra_deg"]
@@ -154,8 +156,8 @@ def save_mom_to_fits(fname,
         for line in lines_data["line_name"]:
             #iterate over the moment maps
             #mom0:
-            save_to_fits(ra_deg,dec_deg,target_hdr_list[ii],target_slice,"VAL","mom0",this_source,this_data,line,folder,target_res)
-            save_to_fits(ra_deg,dec_deg,target_hdr_list[ii],target_slice,"UC","emom0",this_source,this_data,line,folder,target_res)
+            save_to_fits(ra_deg,dec_deg,target_hdr_list[ii],target_slice,"MOM0","mom0",this_source,this_data,line,folder,target_res)
+            save_to_fits(ra_deg,dec_deg,target_hdr_list[ii],target_slice,"EMOM0","emom0",this_source,this_data,line,folder,target_res)
             
             save_to_fits(ra_deg,dec_deg,target_hdr_list[ii],target_slice,"MOM1","mom1",this_source,this_data,line,folder,target_res)
             save_to_fits(ra_deg,dec_deg,target_hdr_list[ii],target_slice,"EMOM1","emom1",this_source,this_data,line,folder,target_res)
