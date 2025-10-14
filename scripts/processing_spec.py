@@ -139,14 +139,14 @@ def process_spectra(source_list,
                 n_mask = np.min([n_lines,ref_line_method])
                 print(f'{"[INFO]":<10}', f'Using first {n_mask+1} lines as prior.')
             if n_mask>0:
-                for n_mask_i in range(1,n_mask+1):
+                for n_mask_i in range(1,n_mask):
                     line_i = lines_data["line_name"][n_mask_i].upper()
                     mask_i, ref_line_vmean_i, ref_line_vaxis_i = construct_mask(line_i, this_data, SN_processing)
                     this_data["SPEC_MASK_"+line_i]= Column(mask_i, unit=au.dimensionless_unscaled,  description='Velocity-integration mask for {line_i}')
                     #this_data["INT_VAL_V"+line_i] = ref_line_vmean_i
 
                     # add mask to existing mask
-                    mask = mask | mask_i
+                    mask = np.array(mask, dtype=int) | np.array(mask_i, dtype=int)
                     
             elif ref_line_method in ["ref+HI"]:
                 if "hi" not in list(lines_data["line_name"]):
@@ -204,6 +204,7 @@ def process_spectra(source_list,
 
         #store the mask in the PyStructure
         this_data["SPEC_MASK"]= Column(mask, unit=au.dimensionless_unscaled, description='Velocity-integration mask (used for integrated products)')
+        mask*=au.dimensionless_unscaled
         #this_data["INT_VAL_VSHUFF"] = ref_line_vmean #JdB: remove, not needed in final product
 
         #-------------------------------------------------------------------
