@@ -1,5 +1,5 @@
 """
-Class that helps to analyze the PyStructure (in .npy format)
+Class that helps to analyze the PyStructure (in .eces or .npy format)
 """
 __author__ = "J. den Brok"
 
@@ -52,8 +52,8 @@ class PyStructure:
     def get_coordinates(self, center = None):
         """
         :param center: the Ra, and Dec center coordinates. If provided, will return delta_ra, delta_dec,
-                       othrwise, the absolute coordinates will be returned.
-                       Need to be profided as string. E.g. "13:29:52.7 47:11:43"
+                       otherwise, the absolute coordinates will be returned.
+                       Need to be provided as string. E.g. "13:29:52.7 47:11:43"
         """
 
         ra = np.array(self.struct["ra_deg"])
@@ -74,17 +74,16 @@ class PyStructure:
         return delta_ra, delta_dec
 
     def get_sigtir(self):
-        i_70 = self.struct["INT_VAL_PACS70"]
-        i_160 = self.struct["INT_VAL_PACS160"]
-        i_250 = self.struct["INT_VAL_SPIRE250"]
+        i_70 = self.struct["BAND_PACS70"]
+        i_160 = self.struct["BAND_PACS160"]
+        i_250 = self.struct["BAND_SPIRE250"]
 
-        uc_70 = self.struct["INT_UC_PACS70"]
-        uc_160 = self.struct["INT_UC_PACS160"]
-        uc_250 = self.struct["INT_UC_SPIRE250"]
+        uc_70 = self.struct["EBAND_PACS70"]
+        uc_160 = self.struct["EBAND_PACS160"]
+        uc_250 = self.struct["EBAND_SPIRE250"]
         s_tir, s_tir_uc = calc.calc_sigtir(i70 = i_70, i70_uc = uc_70,
                                            i160 = i_160, i160_uc = uc_160,
                                            i250 = i_250, i250_uc = uc_250)
-
         self.sigtir = s_tir
         return s_tir
 
@@ -108,17 +107,14 @@ class PyStructure:
         ax = plt.subplot(1,1,1)
         ra = self.struct["ra_deg"]
         dec = self.struct["dec_deg"]
-
         if not cmap:
             cmap = "RdYlBu_r"
-        im = ax.scatter(ra, dec, c = self.struct["INT_VAL_"+line], s=s, marker="h", cmap = cmap)
+        im = ax.scatter(ra, dec, c = self.struct["MOM0_"+line], s=s, marker="h", cmap = cmap)
         ax.invert_xaxis()
         ax.set_ylabel("Decl.")
         ax.set_xlabel("R.A.")
-
         cb_ax = fig.add_axes([.91,.124,.04,.754])
         fig.colorbar(im,orientation='vertical',cax=cb_ax)
-
         plt.show()
 
     def get_vaxis(self, get_shuff = False):
@@ -148,6 +144,41 @@ class PyStructure:
 
         return vaxis
 
+    def quickplot_spectrum(self, line, idx, show_mask=False):
+        """
+        Plot a spectrum of a line that is provided
+
+        optional parameters
+        :param show_mask: toggle indication of integration mask
+
+        """
+
+        # velocity axis
+        vaxis = self.get_vaxis(get_shuff=False)
+
+        # load spectrum
+        spec = self.struct[f'SPEC_{line}'][idx]
+
+        # initialise figure
+        fig = plt.figure(figsize=(10,6))
+        ax = plt.subplot(1,1,1)
+
+        # spectrum
+        ax.step(vaxis, spec, where='mid')
+
+        if show_mask:
+            # load mask
+            mask = self.struct[f'SPEC_MASK'][idx]
+            # plot mask as shaded area
+            ymin, ymax = ax.get_ylim()
+            ax.fill_between(vaxis, ymin, ymax, where=(mask==1), color='lightblue', alpha=0.5)
+
+        # axis labels
+        ax.set_xlabel('Velocity [km/s]')
+        ax.set_ylabel(f'{line} intensity [K]')
+
+        plt.show()
+
     def get_ratio(self,line,sn= 5):
         """
         Compute the ratio of two lines
@@ -159,11 +190,11 @@ class PyStructure:
         line1 = line[0]
         line2 = line[1]
 
-        line1_ii = self.struct["INT_VAL_"+line1]
-        line1_uc = self.struct["INT_UC_"+line1]
+        line1_ii = self.struct["MOM0_"+line1]
+        line1_uc = self.struct["EMOM0_"+line1]
 
-        line2_ii = self.struct["INT_VAL_"+line2]
-        line2_uc = self.struct["INT_UC_"+line2]
+        line2_ii = self.struct["MOM0_"+line2]
+        line2_uc = self.struct["EMOM0_"+line2]
 
         ratio_val = np.zeros_like(line1_ii)*np.nan
         ratio_uc = np.zeros_like(line1_ii)*np.nan

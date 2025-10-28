@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import os.path
 from scipy import stats
 from astropy.stats import median_absolute_deviation, mad_std
 from mom_computer import get_mom_maps
@@ -62,13 +63,16 @@ def dist(ra, dec, ra_c, dec_c):
     
 def process_spectra(source_list,
                     lines_data,
-                    fname,shuff_axis,
+                    fname,
+                    shuff_axis,
                     run_success,
                     ref_line_method,
                     SN_processing,
                     strict_mask,
                     input_mask = None,
-                    use_input_mask = False, 
+                    use_input_mask = False,
+                    hfs_data = None,
+                    use_hfs_lines = False,
                     mom_calc = [3, 3, "fwhm"],
                     just_source = None
                     ):
@@ -86,7 +90,6 @@ def process_spectra(source_list,
 
     for ii in range(n_sources):
 
-
         #if the run was not succefull, don't do processing of the data
         if not run_success[ii]:
             continue
@@ -96,20 +99,20 @@ def process_spectra(source_list,
             if just_source != this_source:
                 continue
 
-
-
-        print("----------------------------------")
-        print(f'Source: {this_source}')
-        print("----------------------------------")
+        # print("----------------------------------")
+        # print(f'Source: {this_source}')
+        # print("----------------------------------")
 
         this_data = Table.read(fname[ii])
         tags = this_data.keys()
         n_chan = np.shape(this_data["SPEC_"+ref_line])[1]
+
         #--------------------------------------------------------------
         #  Build a mask based on reference line(s)
         #--------------------------------------------------------------
-
+        
         if use_input_mask:
+            print(f'{"[INFO]":<10}', 'Use input mask.')
             # check that input mask is provided
             if len(input_mask) == 0:
                 print(f'{"[ERROR]":<10}', f'No mask provided!')
@@ -125,36 +128,52 @@ def process_spectra(source_list,
             _, ref_line_vmean, ref_line_vaxis = construct_mask(ref_line, this_data, SN_processing)
 
         else:
+            print(f'{"[INFO]":<10}', 'Build mask from prior line(s).')
             # Use function for mask
             mask, ref_line_vmean, ref_line_vaxis = construct_mask(ref_line, this_data, SN_processing)
-            this_data["SPEC_MASK_"+ref_line]= Column(mask, unit=au.dimensionless_unscaled, description='Velocity-integration mask for {ref_line}')
-            #this_data["INT_VAL_V"+ref_line] = ref_line_vmean
+            this_data["SPEC_MASK_"+ref_line]= Column(mask, unit=au.dimensionless_unscaled, description=f'Velocity-integration mask for {ref_line}')
 
-            #check if all lines used as reference line
-            n_mask = 0
-            if ref_line_method in ["all"]:
-                n_mask = n_lines
-                print(f'{"[INFO]":<10}', 'All lines used as prior.')
+            # check which lines are used as priors
+            # n_mask = 0
+            if ref_line_method in ["first"]:
+                n_mask = 0
+                print(f'{"[INFO]":<10}', f'Using first line as prior: {str(lines_data["line_name"][0])}.')
+            elif ref_line_method in ["all"]:
+                n_mask = n_lines-1
+                line_list_str = ''
+                for i, line_name in enumerate(lines_data["line_name"]):
+                    line_list_str += str(line_name) 
+                    if i < n_mask: line_list_str += ', '
+                print(f'{"[INFO]":<10}', f'All lines used as prior: {line_list_str}.')
             elif isinstance(ref_line_method, int):
                 n_mask = np.min([n_lines,ref_line_method])
-                print(f'{"[INFO]":<10}', f'Using first {n_mask+1} lines as prior.')
+                line_list_str = ''
+                for i, line_name in enumerate(lines_data["line_name"][:n_mask+1]):
+                    line_list_str += str(line_name) 
+                    if i < n_mask: line_list_str += ', '
+                print(f'{"[INFO]":<10}', f'Using first {n_mask+1} lines as prior: {line_list_str}.')
+
+            # combine masks of all priors if more than one line is used
             if n_mask>0:
                 for n_mask_i in range(1,n_mask+1):
                     line_i = lines_data["line_name"][n_mask_i].upper()
-                    mask_i, ref_line_vmean_i, ref_line_vaxis_i = construct_mask(line_i, this_data, SN_processing)
-                    this_data["SPEC_MASK_"+line_i]= Column(mask_i, unit=au.dimensionless_unscaled,  description='Velocity-integration mask for {line_i}')
-                    #this_data["INT_VAL_V"+line_i] = ref_line_vmean_i
+                    mask_i, _, _ = construct_mask(line_i, this_data, SN_processing)
+                    this_data["SPEC_MASK_"+line_i]= Column(mask_i, unit=au.dimensionless_unscaled, description=f'Velocity-integration mask for {line_i}')
 
                     # add mask to existing mask
-                    mask = mask | mask_i
-                    
-            elif ref_line_method in ["ref+HI"]:
+                    mask = mask.value.astype(int) | mask_i.value.astype(int)
+                    mask *=au.dimensionless_unscaled
+
+            # combine with HI mask
+            if ref_line_method in ["ref+HI"]:
                 if "hi" not in list(lines_data["line_name"]):
                     print(f'{"[WARNING]":<10}', 'HI not in PyStructure. Skipping.')
                 else:
                     mask_hi, ref_line_vmean_hi, ref_line_vaxis_hi = construct_mask("HI", this_data, SN_processing)
                     
-                    mask = mask | mask_hi
+                    # add mask to existing mask
+                    mask = mask.value.astype(int) | mask_hi.value.astype(int)
+                    mask *=au.dimensionless_unscaled
                     
                     rgal = this_data["rgal_r25"]
                     n_pts = len(this_data["rgal_r25"])
@@ -165,9 +184,10 @@ def process_spectra(source_list,
                         else:
                             vmean_comb[jj] = ref_line_vmean_hi[jj]
                     ref_line_vmean = vmean_comb
+
             if strict_mask:
                 """
-                Make sure that spatialy we do not have only connected pixels
+                Make sure that spatially we do not have only connected pixels
                 """
                 ra, dec = this_data["ra_deg"], this_data["dec_deg"]
                 for jj in range(n_chan):
@@ -202,26 +222,113 @@ def process_spectra(source_list,
                         if len(mask[:,jj][np.where(mask_labels==lab)])<5:
                             mask[:,jj][np.where(mask_labels==lab)]=0
 
+        #-------------------------------------------------------------------
+        # OPTIONAL: Modified mask for hyperfine structure lines
+        #-------------------------------------------------------------------
+
+        if use_hfs_lines:
+
+            # check that input hyperfine structure data is provided
+            if len(hfs_data) == 0:
+                print(f'{"[ERROR]":<10}', 'No hyperfine structure file provided!')
+            else:
+                # get set of hyperfine structure lines
+                lines_hfs = list(set(hfs_data['hfs_name']))
+                print(f'{"[INFO]":<10}', 'Provided hyperfine structure lines:', lines_hfs)
+
+            # get associated reference rest frequency
+            line_restfreq_list = []
+            for line in lines_hfs:
+                # select columns of given line
+                idx_cols = hfs_data['hfs_name'] == line
+                # get list of frequencies for given line
+                restfreqs = [f * au.Unit(str(u)) for f, u in zip(hfs_data['hfs_ref_freq'][idx_cols], hfs_data['unit'][idx_cols])]
+                # append to list
+                line_restfreq_list.append(restfreqs)
+
+            # get set of hyperfine structure frequencies per line
+            hfs_freq_list = []
+            for line in lines_hfs:
+                # select columns of given line
+                idx_cols = hfs_data['hfs_name'] == line
+                # get list of frequencies for given line
+                hfs_freqs = [f * au.Unit(str(u)) for f, u in zip(hfs_data['hfs_freq'][idx_cols], hfs_data['unit'][idx_cols])]
+                # append to list
+                hfs_freq_list.append(hfs_freqs)
+
+            # loop over lines
+            for jj in range(n_lines):
+
+                # line name from database
+                line_name = lines_data["line_name"][jj]
+
+                # create hyperfine structure mask for respective lines
+                if line_name in lines_hfs:
+
+                    print(f'{"[INFO]":<10}', f'Creating hyperfine structure mask for {line_name}.')
+
+                    # get reference rest frequency and hyperfine frequencies
+                    idx_line = lines_hfs.index(line_name)
+                    hfs_reffreq = line_restfreq_list[idx_line]
+                    hfs_freq = hfs_freq_list[idx_line]
+
+                    # channel width
+                    v_ch = this_data.meta["SPEC_DELTAV"]
+
+                    # initionalise master finestructure mask (combination of all shifted masks)
+                    mask_hfs = np.copy(mask)
+
+                    # iterate over hyperfine frequencies
+                    for freq, restfreq in zip(hfs_freq, hfs_reffreq):
+                        
+                        # compute velocity shift from frequency
+                        freq_to_vel = au.doppler_radio(restfreq)
+                        v_shift = freq.to(au.km/au.s, equivalencies=freq_to_vel) 
+                        v_ch = v_ch.to(au.km/au.s)
+
+                        # compute hyperfine velocity shift in amounts of channels
+                        shift_ch = int(np.rint(v_shift.value / v_ch.value))
+
+                        # shift mask to hyperfine frequency
+                        mask_shift = np.empty_like(mask, dtype=float)
+                        mask_shift[:] = 0
+                        if shift_ch > 0:
+                            mask_shift[:, shift_ch:] = mask[:, :-shift_ch]
+                        elif shift_ch < 0:
+                            mask_shift[:, :shift_ch] = mask[:, -shift_ch:]
+                        else:
+                            mask_shift = mask.copy()
+
+                        # add to master mask
+                        mask_hfs[mask_shift == 1] = 1
+
+                    # assign units
+                    mask_hfs *= au.dimensionless_unscaled
+
+                    # save mask to database
+                    this_data[f'SPEC_MASK_{line_name.upper()}'] = Column(mask_hfs, unit=au.dimensionless_unscaled, description=f'Velocity-integration mask for {line_name.upper()}')
+
+
         #store the mask in the PyStructure
-        this_data["SPEC_MASK"]= Column(mask, unit=au.dimensionless_unscaled, description='Velocity-integration mask (used for integrated products)')
+        this_data["SPEC_MASK"] = Column(mask, unit=au.dimensionless_unscaled, description='Velocity-integration mask (used for integrated products)')
         #this_data["INT_VAL_VSHUFF"] = ref_line_vmean #JdB: remove, not needed in final product
 
+        print(f'{"[INFO]":<10}', 'Done with mask. Computing moments.')
+
         #-------------------------------------------------------------------
-        # Apply the CO-based mask to the EMPIRE lines and shuffle them
+        # Apply the mask to all lines and shuffle them
         #-------------------------------------------------------------------
-        n_chan_new = 200
+        n_chan_new = 200 # LN: not used (remove?)
        
         for jj in range(n_lines):
-            line_name = lines_data["line_name"][jj].upper()
+            line_name = lines_data["line_name"][jj]
 
-            
-
-            if not 'SPEC_'+line_name in this_data.keys():
-                print(f'{"[ERROR]":<10}', f'Tag for line {line_name} not found. Proceeding.')
+            if not 'SPEC_'+line_name.upper() in this_data.keys():
+                print(f'{"[ERROR]":<10}', f'Tag for line {line_name.upper()} not found. Proceeding.')
                 continue
-            this_spec = this_data['SPEC_'+line_name]
+            this_spec = this_data[f'SPEC_{line_name.upper()}']
             if np.nansum(this_spec, axis = None)==0:
-                print(f'{"[ERROR]":<10}', f'Line {line_name} appears empty. Skipping.')
+                print(f'{"[ERROR]":<10}', f'Line {line_name.upper()} appears empty. Skipping.')
                 continue
 
             dim_sz = np.shape(this_spec)
@@ -232,37 +339,42 @@ def process_spectra(source_list,
             this_crpix = this_data.meta["SPEC_CRPIX"]
             
             this_vaxis = (this_v0 + (np.arange(n_chan)-(this_crpix-1))*this_deltav).to(au.km/au.s) #to km/s
-            this_data["SPEC_VAXIS"] = Column(np.array([this_vaxis]*n_pts), unit=au.km/au.s,description='Velocity axis')
+            this_data["SPEC_VAXIS"] = Column(np.array([this_vaxis]*n_pts), unit=au.km/au.s, description='Velocity axis')
 
-            shuffled_mask = shuffle(spec = mask, \
-                                    vaxis = ref_line_vaxis,\
-                                    zero = 0.0,\
-                                    new_vaxis = this_vaxis, \
-                                    interp = 0)
+            # LN: Why do we have to do this? Should't the velocity axis of all lines be the same?
+            # shuffled_mask = shuffle(spec = mask, \
+            #                         vaxis = ref_line_vaxis,\
+            #                         zero = 0.0,\
+            #                         new_vaxis = this_vaxis, \
+            #                         interp = 0)
                         
             #compute moment_maps
-            mom_maps = get_mom_maps(this_spec, shuffled_mask,this_vaxis, mom_calc)
+            # mom_maps = get_mom_maps(this_spec, shuffled_mask,this_vaxis, mom_calc)
+            if use_hfs_lines & (line_name in lines_hfs):
+                mask_hfs = this_data[f'SPEC_MASK_{line_name.upper()}']* au.Unit(1)
+                mom_maps = get_mom_maps(this_spec, mask_hfs, this_vaxis, mom_calc)
+            else:
+                mom_maps = get_mom_maps(this_spec, mask, this_vaxis, mom_calc)
 
             # Save in structure
             line_desc = lines_data["line_desc"][jj]
             if lines_data["band_ext"].isnull()[jj]:
                 
+                tag_ii = "MOM0_"+line_name.upper()
+                tag_uc = "EMOM0_" + line_name.upper()
                 
-                tag_ii = "MOM0_"+line_name
-                tag_uc = "EMOM0_" + line_name
+                tag_tpeak = "TPEAK_" + line_name.upper()
+                tag_rms = "RMS_" + line_name.upper()
                 
-                tag_tpeak = "TPEAK_" + line_name
-                tag_rms = "RMS_" + line_name
-                
-                tag_mom1 = "MOM1_" + line_name
-                tag_mom1_err = "EMOM1_" + line_name
+                tag_mom1 = "MOM1_" + line_name.upper()
+                tag_mom1_err = "EMOM1_" + line_name.upper()
                 
                 #Note that Mom2 corresponds to a FWHM
-                tag_mom2 = "MOM2_" + line_name
-                tag_mom2_err = "EMOM2_" + line_name
+                tag_mom2 = "MOM2_" + line_name.upper()
+                tag_mom2_err = "EMOM2_" + line_name.upper()
                 
-                tag_ew = "EW_" + line_name
-                tag_ew_err = "EEW_" + line_name
+                tag_ew = "EW_" + line_name.upper()
+                tag_ew_err = "EEW_" + line_name.upper()
                 
                 # store the different calculations
                 this_data[tag_ii] = Column(mom_maps["mom0"], description=f'{line_desc} integrated intensity (moment-0)')
@@ -294,7 +406,7 @@ def process_spectra(source_list,
                                     new_vaxis = new_vaxis,\
                                     interp = 0)
 
-            tag_i = "SPEC_SHUFF" + line_name
+            tag_i = "SPEC_SHUFF" + line_name.upper()
             tag_v0 = "SPEC_VCHAN0_SHUFF"
             tag_deltav = "SPEC_DELTAV_SHUFF"
 
@@ -308,6 +420,8 @@ def process_spectra(source_list,
 
         this_data.meta["SPEC_CRPIX_SHUFF"] = 1
         this_data.write(fname[ii], format='ascii.ecsv', overwrite=True)
+
+        print(f'{"[INFO]":<10}', f'Done with moments for {this_source}.')
 
 
         # /__

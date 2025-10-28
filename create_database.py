@@ -62,7 +62,7 @@ MODIFICATION HISTORY
             - Major change: Change the infrastructure from numpy dictonary to Astropy Tables
 
     - v4.1.0 October 2025
-            - New (optional) feature: Masking of fine structure lines
+            - New (optional) feature: Masking of hyperfine structure lines
 
 """
 __author__ = "J. den Brok & L. Neumann"
@@ -179,6 +179,16 @@ def create_database(just_source=None, quiet=False, conf=False):
                   "r25", "e_r25"]
     source_data = pd.read_csv(geom_file, sep = "\t",names = names_source,
                             comment = "#")
+    
+    # load hyperfine structure parameters
+    if 'hfs_file' in globals() and os.path.exists(hfs_file):
+        if quiet == False:
+            print(f'{"[INFO]":<10}', 'Reading in hyperfine structure parameters.')
+        hfs_columns = ["hfs_name", "hfs_ref_freq", "hfs_freq", "unit"]
+        hfs_data = pd.read_csv(hfs_file, sep="\t", names=hfs_columns, comment="#")
+    else:
+        if quiet == False:
+            print(f'{"[INFO]":<10}', 'No hyperfine structure file provided.')
 
     #define list of sources (need to differentiate between conf file input and default)
     if conf:
@@ -191,6 +201,7 @@ def create_database(just_source=None, quiet=False, conf=False):
         source_list = list(source_data["source"])
 
     n_sources = len(source_list)
+
     # -----------------------------------------------------------------
     # GENERATE THE EMPTY DATA STRUCTURE
     # -----------------------------------------------------------------
@@ -198,7 +209,7 @@ def create_database(just_source=None, quiet=False, conf=False):
     # Add the bands to the structure
     band_columns = ["band_name","band_desc", "band_unit",
                     "band_ext", "band_dir","band_uc" ]
-    bands = pd.read_csv(band_file, names = band_columns, sep='[\s,]{2,20}', comment="#")
+    bands = pd.read_csv(band_file, names = band_columns, sep=r'[,\s]{2,20}', comment="#")
 
     n_bands = len(bands["band_name"])
     
@@ -209,7 +220,7 @@ def create_database(just_source=None, quiet=False, conf=False):
     # Add the cubes to the structure
     cube_columns = ["line_name", "line_desc", "line_unit", "line_ext", "line_dir" , "band_ext", "band_uc"]
 
-    cubes = pd.read_csv(cube_file, names = cube_columns, sep='[\s,]{2,20}', comment="#")
+    cubes = pd.read_csv(cube_file, names = cube_columns, sep=r'[,\s]{2,20}', comment="#")
     n_cubes = len(cubes["line_name"])
 
 
@@ -219,7 +230,7 @@ def create_database(just_source=None, quiet=False, conf=False):
     # Add the input velocity-integration mask to the structure
     # mask_columns = ["mask_name", "mask_desc", "mask_unit", "mask_ext", "mask_dir"]
     mask_columns = ["mask_name", "mask_desc", "mask_ext", "mask_dir"]
-    input_mask = pd.read_csv(mask_file, names = mask_columns, sep='[\s,]{2,20}', comment="#")
+    input_mask = pd.read_csv(mask_file, names = mask_columns, sep=r'[,\s]{2,20}', comment="#")
     if len(input_mask) == 0:
         if quiet == False:
             print(f'{"[INFO]":<10}', f'No mask provided; will be constructed from prior line(s).')
@@ -428,6 +439,10 @@ def create_database(just_source=None, quiet=False, conf=False):
         #---------------------------------------------------------------------
 
         for jj in range(n_bands):
+
+            print('-------------------------------')
+            print(f'{"[INFO]":<10}', f'Process band: {bands["band_name"][jj]}')
+
             if 'fill' in structure_creation:
                 if bands["band_name"][jj] in fill_bands:
                     continue
@@ -466,6 +481,7 @@ def create_database(just_source=None, quiet=False, conf=False):
             this_data[this_tag_name] = Column(this_int , unit= au.Unit(this_unit), description=bands["band_desc"][jj])
            
             #; MJ: ...AND ALSO THE UNCERTAINTIES FOR THE MAPS
+            print(f'{"[INFO]":<10}', f'Process band uncertainty.')
             if  not isinstance(bands["band_uc"][jj], str):
                 print(f'{"[WARNING]":<10}', f'No uncertainty band {bands["band_name"][jj]} provided for {this_source}.')
                 continue
@@ -473,7 +489,7 @@ def create_database(just_source=None, quiet=False, conf=False):
             if not path.exists(this_uc_file):
                 print(f'{"[WARNING]":<10}', f'Uncertainty band {bands["band_name"][jj]} not found for {this_source}.')
                 continue
-            print(f'{"[INFO]":<10}', f'Convolving and sampling band {bands["band_name"][jj]} for {this_source}.')
+            # print(f'{"[INFO]":<10}', f'Convolving and sampling band {bands["band_name"][jj]} for {this_source}.')
 
             this_uc, this_hdr = sample_at_res(in_data = this_uc_file,
                                     ra_samp = samp_ra,
@@ -491,6 +507,9 @@ def create_database(just_source=None, quiet=False, conf=False):
         #---------------------------------------------------------------------
 
         for jj in range(n_cubes):
+
+            print('-------------------------------')
+            print(f'{"[INFO]":<10}', f'Process line: {cubes["line_name"][jj]}')
 
             if 'fill' in structure_creation:
                 if cubes["line_name"][jj] in fill_cubes:
@@ -637,13 +656,15 @@ def create_database(just_source=None, quiet=False, conf=False):
     # NOW PROCESS THE SPECTRA
     #---------------------------------------------------------------------
     if not quiet:
+        print('-------------------------------')
         if use_input_mask:
-            print(f'{"[INFO]":<10}', 'Start processing spectra; using input mask.')
+            print(f'{"[INFO]":<10}', f'Start processing spectra for {this_source}; using input mask.')
         else:
-            print(f'{"[INFO]":<10}', 'Start processing spectra.')
+            print(f'{"[INFO]":<10}', f'Start processing spectra for {this_source}.')
      
     process_spectra(source_list,
-                    cubes,fnames,
+                    cubes,
+                    fnames,
                     [NAXIS_shuff, CDELT_SHUFF],
                     run_success,
                     ref_line,
@@ -651,6 +672,8 @@ def create_database(just_source=None, quiet=False, conf=False):
                     strict_mask,
                     input_mask, 
                     use_input_mask, 
+                    hfs_data,
+                    use_hfs_lines,
                     [mom_thresh,conseq_channels,mom2_method],
                     )
   
@@ -708,9 +731,11 @@ if config_prov:
     shutil.rmtree('./Temp_Files')
 
 if all(run_success):
+    print('-------------------------------')
     print(f'{"[INFO]":<10}', 'Run finished succesfully.')
 
 else:
+    print('-------------------------------')
     print(f'{"[WARNING]":<10}', 'Run terminated with potential critical error!')
 
 #print_warning(0)

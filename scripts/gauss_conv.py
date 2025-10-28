@@ -264,7 +264,7 @@ def conv_with_gauss(in_data,
         dim_y = dim_data[1]
 
     if kern_size > dim_x or kern_size > dim_y:
-        print("[Warning]\t PSF is very big compared to image.")
+        print(f'{"[WARNING]":<10}', 'PSF is very big compared to image.')
         kern_size = int(np.floor(min(dim_x,dim_y)/2-2)*2 + 1)
 
     # Build the PSF based on the kernel calculation. Note that the units
