@@ -231,10 +231,9 @@ def process_spectra(source_list,
             # check that input hyperfine structure data is provided
             if len(hfs_data) == 0:
                 print(f'{"[ERROR]":<10}', 'No hyperfine structure file provided!')
-            else:
-                # get set of hyperfine structure lines
-                lines_hfs = list(set(hfs_data['hfs_name']))
-                print(f'{"[INFO]":<10}', 'Provided hyperfine structure lines:', lines_hfs)
+
+            # get set of hfs lines
+            lines_hfs = list(set(hfs_data['hfs_name']))
 
             # get associated reference rest frequency
             line_restfreq_list = []
