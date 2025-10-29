@@ -11,7 +11,7 @@ from reproject import reproject_interp
 from astropy.wcs import WCS
 from astropy.stats import median_absolute_deviation
 from astropy.convolution import Gaussian1DKernel, Box1DKernel, convolve
-from spectral_cube import SpectralCube # LN: not used in the script
+# from spectral_cube import SpectralCube # LN: not used in the script
 from twod_header import twod_head
 import warnings
 warnings.filterwarnings("ignore")
@@ -38,7 +38,7 @@ def sample_at_res(in_data,
                   show = False,  # LN: not used in the function (delete?)
                   #advanced parameters
                   line_name = "",
-                  galaxy = "",
+                  source = "",
                   save_fits = False,
                   path_save_fits = "",
                   perbeam = False,
@@ -97,30 +97,37 @@ def sample_at_res(in_data,
     #   Convolve and Align
     #------------------------------------------------------------
 
-    current_bmaj = hdr["BMAJ"]
-
-    #reduce by 1% to account for rounding
-    if current_bmaj < (0.99*target_res_as/3600):
-        
-        print(f'{"[INFO]":<10}', f'Convolve to {target_res_as} arcseconds.')
-
-        # convolve data with Gaussian kernel
-        data, hdr_out = conv_with_gauss(in_data = data, 
-                                        in_hdr = hdr,
-                                        target_beam = target_res_as*np.array([1,1,0]),
-                                        quiet = True,
-                                        perbeam = perbeam,
-                                        unc=unc)
-
-        #data_speccube = SpectralCube(data=data, wcs = WCS(hdr))
-        #data_speccube.beam = radio_beam.Beam(major=current_bmaj*u.arcsec, minor=current_bmaj*u.arcsec, pa=0*u.deg)
-        #beam = radio_beam.Beam(major=target_res_as*u.arcsec, minor=target_res_as*u.arcsec, pa=0*u.deg)
-        #new_datacube = data_speccube.convolve_to(beam)
-        #data = np.array(new_datacube.unmasked_data[:,:,:])
-        #hdr_out = hdr
-    else:
-        print(f'{"[INFO]":<10}', 'Already at target resolution.')
+    # skip convolution, if resolution is not provided in the header
+    if 'BMAJ' not in hdr:
+        print(f'{"[WARNING]":<10}', f'Header does not contain beam information (missing key: BMAJ).')
+        print(f'{"[INFO]":<10}', f'Skip convolution and sample.')
         hdr_out = copy.copy(hdr)
+    else:
+        current_bmaj = hdr["BMAJ"]
+
+        #reduce by 1% to account for rounding
+        if current_bmaj < (0.99*target_res_as/3600):
+            
+            print(f'{"[INFO]":<10}', f'Convolve to {np.round(target_res_as, 3)} arcseconds.')
+
+            # convolve data with Gaussian kernel
+            data, hdr_out = conv_with_gauss(in_data = data, 
+                                            in_hdr = hdr,
+                                            target_beam = target_res_as*np.array([1,1,0]),
+                                            quiet = True,
+                                            perbeam = perbeam,
+                                            unc=unc)
+
+            #data_speccube = SpectralCube(data=data, wcs = WCS(hdr))
+            #data_speccube.beam = radio_beam.Beam(major=current_bmaj*u.arcsec, minor=current_bmaj*u.arcsec, pa=0*u.deg)
+            #beam = radio_beam.Beam(major=target_res_as*u.arcsec, minor=target_res_as*u.arcsec, pa=0*u.deg)
+            #new_datacube = data_speccube.convolve_to(beam)
+            #data = np.array(new_datacube.unmasked_data[:,:,:])
+            #hdr_out = hdr
+        else:
+            print(f'{"[INFO]":<10}', 'Already at target resolution.')
+            print(f'{"[INFO]":<10}', f'Skip convolution and sample.')
+            hdr_out = copy.copy(hdr)
 
     #; Measure the rms in the map after convolution but before
     #; alignment. This isn't really ideal but can be a useful
@@ -164,22 +171,23 @@ def sample_at_res(in_data,
     #perform spectral smooting, if needed
     if spec_smooth[0] in ["overlay"]:
         spec_smooth[0] = abs(target_hdr["CDELT3"])/1000
+
     if type(spec_smooth[0]) == int or type(spec_smooth[0]) == float:
         spec_res = abs(hdr["CDELT3"])/1000
         fwhm_factor = np.sqrt(8*np.log(2))
-        if spec_res >=spec_smooth[0]:
+        if spec_res >= spec_smooth[0]:
             print(f'{"[INFO]":<10}', 'No spectral smoothing; already at target resolution.')
         else:
-            print(f'{"[INFO]":<10}', f'Do spectral smoothing to {spec_smooth[0]} km/s.')
+            print(f'{"[INFO]":<10}', f'Do spectral smoothing to {np.round(spec_smooth[0], 3)} km/s.')
 
 
             #check the method:
             #
             # Gauss method:
             if spec_smooth[1] in ["gauss"]:
+                print(f'{"[INFO]":<10}', f'Do spectral smoothing via Gaussian convolution.')
                 pix = ((spec_smooth[0]**2 - spec_res**2)**0.5  / spec_res)/fwhm_factor
                 kernel = Gaussian1DKernel(pix)
-
 
                 for spec_n in ProgressBar(range(dim_data[1]*dim_data[2])):
                     y = spec_n%dim_data[1]
@@ -197,8 +205,9 @@ def sample_at_res(in_data,
                     n_ratio+=1
                 new_len = len(vaxis_native)//n_ratio
                 if n_ratio==1:
-                    print(f'{"[INFO]":<10}', 'No spectral smoothing; already at target resolution.')
+                    print(f'{"[INFO]":<10}', 'No spectral binning possible; already at target resolution.')
                 else:
+                    print(f'{"[INFO]":<10}', f'Do spectral smoothing via channel binning.')
                     new_vaxis = np.array([np.nanmean(vaxis_native[n_ratio*j:n_ratio*(j+1)]) for j in range(new_len)])
                     data = np.array([np.nanmean(data[n_ratio*j:n_ratio*(j+1),:,:], axis=0) for j in range(new_len)])
 
@@ -207,7 +216,7 @@ def sample_at_res(in_data,
                     hdr_out["CRVAL3"] = new_vaxis[0] + (hdr_out["CRPIX3"]-1)*hdr_out["CDELT3"]
 
                 if spec_smooth[1] in ["combined"]:
-                    print(n_ratio*spec_res)
+                    print(f'{"[INFO]":<10}', f'Do spectral smoothing via Gaussian convolution.')
                     if n_ratio*spec_res<spec_smooth[0]:
                         pix = ((spec_smooth[0]**2 - (n_ratio*spec_res)**2)**0.5  / spec_res)/fwhm_factor
                         kernel = Gaussian1DKernel(pix)
@@ -247,7 +256,7 @@ def sample_at_res(in_data,
             out_header["BMAJ"]=target_res_as/3600
             out_header["BMIN"]=target_res_as/3600
             out_header["LINE"]=line_name
-            fits.writeto(path_save_fits+galaxy+'_'+str(line_name)+'_{}as.fits'.format(target_res_as), data=data_out, header=out_header, overwrite=True)
+            fits.writeto(path_save_fits+source+'_'+str(line_name)+'_{}as.fits'.format(target_res_as), data=data_out, header=out_header, overwrite=True)
             print(f'{"[INFO]":<10}', 'Convolved fits file has been saved.')
 
     else:
@@ -317,7 +326,7 @@ def sample_mask(in_data,
                 #   show = False,  # LN: not used in the function (delete?)
                   #advanced parameters
                 #   line_name = "",
-                #   galaxy = "",
+                #   source = "",
                 #   save_fits = False,
                 #   path_save_fits = "",
                 #   perbeam = False,
