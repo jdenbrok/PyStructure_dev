@@ -26,10 +26,18 @@ def construct_mask(ref_line, this_data, SN_processing):
     rms = median_absolute_deviation(ref_line_data, axis = None, ignore_nan = True)
     rms = median_absolute_deviation(ref_line_data[np.where(ref_line_data<3*rms)], ignore_nan = True)
 
+    #First create a rough mask
+    mask_rough = (ref_line_data) < 3 * rms
+    masked_cube = np.where(mask_rough, ref_line_data, np.nan)
+    med_mask = np.nanmedian(masked_cube, axis=1)
+
+    # Median absolute deviation along z (ignoring NaNs)
+    mad_mask = np.nanmedian(np.abs(masked_cube - med_mask[:,None]), axis=1)
+
     # Mask each spectrum
-    low_tresh, high_tresh = SN_processing[0], SN_processing[1]
-    mask = np.array(ref_line_data > high_tresh * rms, dtype = int)
-    low_mask = np.array(ref_line_data > low_tresh * rms, dtype = int)
+    low_tresh, high_tresh = SN_processing[0]* mad_mask[:, None], SN_processing[1]* mad_mask[:, None]    
+    mask = np.array(ref_line_data > high_tresh , dtype = int)
+    low_mask = np.array(ref_line_data > low_tresh , dtype = int)
 
     mask = mask & (np.roll(mask, 1,1) | np.roll(mask,-1,1))
 
@@ -349,9 +357,10 @@ def process_spectra(source_list,
                         
             #compute moment_maps
             # mom_maps = get_mom_maps(this_spec, shuffled_mask,this_vaxis, mom_calc)
-            if use_hfs_lines & (line_name in lines_hfs):
-                mask_hfs = this_data[f'SPEC_MASK_{line_name.upper()}']* au.Unit(1)
-                mom_maps = get_mom_maps(this_spec, mask_hfs, this_vaxis, mom_calc)
+            if use_hfs_lines:
+                if (line_name in lines_hfs):
+                    mask_hfs = this_data[f'SPEC_MASK_{line_name.upper()}']* au.Unit(1)
+                    mom_maps = get_mom_maps(this_spec, mask_hfs, this_vaxis, mom_calc)
             else:
                 mom_maps = get_mom_maps(this_spec, mask, this_vaxis, mom_calc)
 
