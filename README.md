@@ -129,8 +129,7 @@ _For more examples, please refer to the [Documentation](https://pystructure.read
 <!-- ROADMAP -->
 ## Roadmap
 
-- [x] More sophisticated masking (no single sightlines allowed)
-- [x] Documentation
+- [] Improve Documentation after transition to Astropy Tables.
 
 See the [open issues](https://github.com/jdenbrok/PyStructure/issues) for a full list of proposed features (and known issues).
 
@@ -151,7 +150,7 @@ Distributed under the MIT License. See `LICENSE.txt` for more information.
 <!-- CONTACT -->
 ## Contact
 
-Dr. Jakob den Brok - jakob.den_brok@cfa.harvard.edu
+Dr. Jakob den Brok - jadenbrok@mpia.de
 
 Dr. Lukas Neumann - lukas.neumann@eso.org
 

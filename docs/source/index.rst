@@ -21,6 +21,16 @@ List of Papers
 --------------
 The scripts have been employed by several peer-reviewed publications:
 
+* Stuber et al. (2025), A&A, 702A, 66S
+
+* Galić et al. (2025), arXiv250815901G
+
+* Zhang et al. (2025), ApJ, 982, 21Z 
+
+* den Brok et al. (2025), ApJ, 988, 162D
+
+* Kovačić et al. (2025), A&A, 694A, 87K
+
 * den Brok et al. (2023), MNRAS, 526, 6347
 
 * Eibensteiner et al. (2023), A&A, 675, 37
