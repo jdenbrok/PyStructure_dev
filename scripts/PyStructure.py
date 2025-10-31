@@ -74,13 +74,22 @@ class PyStructure:
         return delta_ra, delta_dec
 
     def get_sigtir(self):
-        i_70 = self.struct["BAND_PACS70"]
-        i_160 = self.struct["BAND_PACS160"]
-        i_250 = self.struct["BAND_SPIRE250"]
+        if 'astro_table' in self.struct_type:
+            i_70 = self.struct["BAND_PACS70"]
+            i_160 = self.struct["BAND_PACS160"]
+            i_250 = self.struct["BAND_SPIRE250"]
 
-        uc_70 = self.struct["EBAND_PACS70"]
-        uc_160 = self.struct["EBAND_PACS160"]
-        uc_250 = self.struct["EBAND_SPIRE250"]
+            uc_70 = self.struct["EBAND_PACS70"]
+            uc_160 = self.struct["EBAND_PACS160"]
+            uc_250 = self.struct["EBAND_SPIRE250"]
+        else:
+            i_70 = self.struct["INT_VAL_PACS70"]
+            i_160 = self.struct["INT_VAL_PACS160"]
+            i_250 = self.struct["INT_VAL_SPIRE250"]
+
+            uc_70 = self.struct["INT_UC_PACS70"]
+            uc_160 = self.struct["INT_UC_PACS160"]
+            uc_250 = self.struct["INT_UC_SPIRE250"]
         s_tir, s_tir_uc = calc.calc_sigtir(i70 = i_70, i70_uc = uc_70,
                                            i160 = i_160, i160_uc = uc_160,
                                            i250 = i_250, i250_uc = uc_250)
@@ -109,7 +118,11 @@ class PyStructure:
         dec = self.struct["dec_deg"]
         if not cmap:
             cmap = "RdYlBu_r"
-        im = ax.scatter(ra, dec, c = self.struct["MOM0_"+line], s=s, marker="h", cmap = cmap)
+        if 'astro_table' in self.struct_type: 
+            ii_value = self.struct["MOM0_"+line]
+        else:
+            ii_value = self.struct["INT_VAL_"+line]
+        im = ax.scatter(ra, dec, c = ii_value, s=s, marker="h", cmap = cmap)
         ax.invert_xaxis()
         ax.set_ylabel("Decl.")
         ax.set_xlabel("R.A.")
@@ -175,7 +188,7 @@ class PyStructure:
 
         # axis labels
         ax.set_xlabel('Velocity [km/s]')
-        ax.set_ylabel(f'{line} intensity [K]')
+        ax.set_ylabel(f'{line} brightness temperature [K]')
 
         plt.show()
 
@@ -190,11 +203,18 @@ class PyStructure:
         line1 = line[0]
         line2 = line[1]
 
-        line1_ii = self.struct["MOM0_"+line1]
-        line1_uc = self.struct["EMOM0_"+line1]
+        if 'astro_table' in self.struct_type:
+            line1_ii = self.struct["MOM0_"+line1]
+            line1_uc = self.struct["EMOM0_"+line1]
 
-        line2_ii = self.struct["MOM0_"+line2]
-        line2_uc = self.struct["EMOM0_"+line2]
+            line2_ii = self.struct["MOM0_"+line2]
+            line2_uc = self.struct["EMOM0_"+line2]
+        else:
+            line1_ii = self.struct["INT_VAL_"+line1]
+            line1_uc = self.struct["INT_UC_"+line1]
+
+            line2_ii = self.struct["INT_VAL_"+line2]
+            line2_uc = self.struct["INT_UC_"+line2]
 
         ratio_val = np.zeros_like(line1_ii)*np.nan
         ratio_uc = np.zeros_like(line1_ii)*np.nan

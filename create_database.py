@@ -187,6 +187,7 @@ def create_database(just_source=None, quiet=False, conf=False):
         hfs_columns = ["hfs_name", "hfs_ref_freq", "hfs_freq", "unit"]
         hfs_data = pd.read_csv(hfs_file, sep="\t", names=hfs_columns, comment="#")
     else:
+        hfs_data = None
         if quiet == False:
             print(f'{"[INFO]":<10}', 'No hyperfine structure file provided.')
 
