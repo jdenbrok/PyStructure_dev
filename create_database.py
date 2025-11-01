@@ -64,6 +64,9 @@ MODIFICATION HISTORY
     - v4.1.0 October 2025
             - New (optional) feature: Masking of hyperfine structure lines
 
+    - v4.1.1 October 2025
+            - Improved noise estimation (pixel-by-pixel basis)
+
 """
 __author__ = "J. den Brok & L. Neumann"
 __version__ = "v4.1.0"
@@ -163,6 +166,46 @@ def create_temps(conf_file):
 
     return band_f, cube_f, mask_f
 
+def load_conf_txt(conf_file):
+    """
+    Load config file and return lines as list of strings.
+    """
+
+    # open file and load lines
+    with open(conf_file, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+        
+    # remove '\n' from each line
+    lines = [line.strip() for line in lines]
+
+    return lines
+
+def get_res(in_data):
+    """
+    Function to extract the input resolution of the band or cube.
+    """
+
+    # check if data given as string (need to load data first) or already given as an array
+    if isinstance(in_data, str):
+        # Data given in form of a string, need to load data
+        if not path.exists(in_data):
+            print(f'{"[ERROR]":<10}', f'File {in_data} not found. Returning.')
+            return None
+            # return ra_samp * np.nan
+        hdr = fits.getheader(in_data)
+
+    # get beam information
+    if 'BMAJ' not in hdr:
+        print(f'{"[WARNING]":<10}', f'Header does not contain beam information (missing key: BMAJ).')
+    else:
+        current_bmaj = hdr["BMAJ"]
+
+    # convert to astropy units type
+    current_bmaj *= au.deg # assign units of degrees
+    current_bmaj = current_bmaj.to(au.arcsecond) # convert to arcseconds
+
+    return current_bmaj
+
 def create_database(just_source=None, quiet=False, conf=False):
     """
     Function that generates a python dictionary containing a hexagonal grid.
@@ -208,25 +251,23 @@ def create_database(just_source=None, quiet=False, conf=False):
     # -----------------------------------------------------------------
 
     # Add the bands to the structure
-    band_columns = ["band_name","band_desc", "band_unit",
-                    "band_ext", "band_dir","band_uc" ]
+    band_columns = ["band_name", "band_desc", "band_unit", "band_ext", "band_dir", "band_uc" ]
     bands = pd.read_csv(band_file, names = band_columns, sep=r'[,\s]{2,20}', comment="#")
-
     n_bands = len(bands["band_name"])
+    band_names = [str(b) for b in bands['band_name']]
     
     if quiet == False:
-        print(f'{"[INFO]":<10}', f'{n_bands} band(s) loaded into structure.')
+        print(f'{"[INFO]":<10}', f'Loading {n_bands} band(s): {band_names}')
 
 
     # Add the cubes to the structure
     cube_columns = ["line_name", "line_desc", "line_unit", "line_ext", "line_dir" , "band_ext", "band_uc"]
-
     cubes = pd.read_csv(cube_file, names = cube_columns, sep=r'[,\s]{2,20}', comment="#")
     n_cubes = len(cubes["line_name"])
-
+    cube_names = [str(c) for c in cubes['line_name']]
 
     if quiet == False:
-        print(f'{"[INFO]":<10}', f'{n_cubes} cube(s) loaded into structure.')
+        print(f'{"[INFO]":<10}', f'Loading {n_cubes} cube(s): {cube_names}')
 
     # Add the input velocity-integration mask to the structure
     # mask_columns = ["mask_name", "mask_desc", "mask_unit", "mask_ext", "mask_dir"]
@@ -405,6 +446,25 @@ def create_database(just_source=None, quiet=False, conf=False):
         else:
             this_data = Table()
 
+            # meta data
+            this_data.meta['Name'] = 'PyStructure'
+            this_data.meta['Version'] = __version__
+            this_data.meta['Authors'] = __author__
+            this_data.meta['Contacts'] = __email__
+            this_data.meta['Credits'] = __credits__
+            this_data.meta['User'] = user
+            this_data.meta['Comments'] = comments
+            this_data.meta['Date'] = date.today().strftime("%Y_%m_%d")
+            this_data.meta['Source'] = this_source
+
+            # Some basic parameters for each source:
+            this_data["ra_deg"] = Column(samp_ra ,unit= au.deg, description='Right ascension (J2000)')
+            this_data["dec_deg"] = Column(samp_dec ,unit= au.deg, description='Declination (J2000)')
+            this_data.meta["dist_mpc"] = source_data["dist_mpc"][ii_list] * au.Mpc
+            this_data.meta["posang_deg"] = source_data["posang_deg"][ii_list] * au.deg
+            this_data.meta["incl_deg"] = source_data["incl_deg"][ii_list] * au.deg
+            this_data.meta["beam_as"] = target_res_as * au.arcsec
+
             #Define spectral axis of overlay cube
             #ToDo: Implement check if CUNIT3 not available
             unit_vaxis = ov_hdr["CUNIT3"]
@@ -412,14 +472,13 @@ def create_database(just_source=None, quiet=False, conf=False):
             this_data.meta['SPEC_DELTAV'] = ov_hdr["CDELT3"] * au.Unit(unit_vaxis)
             this_data.meta['SPEC_CRPIX'] = ov_hdr["CRPIX3"]
 
-            # Some basic parameters for each source:
-            this_data.meta["source"] = this_source
-            this_data["ra_deg"] = Column(samp_ra ,unit= au.deg, description='Right ascension (J2000)')
-            this_data["dec_deg"] = Column(samp_dec ,unit= au.deg, description='Declination (J2000)')
-            this_data.meta["dist_mpc"] = source_data["dist_mpc"][ii_list] * au.Mpc
-            this_data.meta["posang_deg"] = source_data["posang_deg"][ii_list] * au.deg
-            this_data.meta["incl_deg"] = source_data["incl_deg"][ii_list] * au.deg
-            this_data.meta["beam_as"] = target_res_as * au.arcsec
+            # Input file information
+            this_data.meta['input_bands'] = ''
+            this_data.meta['input_cubes'] = ''
+
+            # save config file to meta data
+            if conf:
+                this_data.meta['Config_file'] = conf_lines
 
             # Convert to galactocentric cylindrical coordinates
             rgal_deg, theta_rad = deproject(samp_ra, samp_dec,
@@ -459,6 +518,14 @@ def create_database(just_source=None, quiet=False, conf=False):
                 print(f'{"[ERROR]":<10}', f'Band {bands["band_name"][jj]} not found for {this_source}.')
 
                 continue
+
+            # add band information to meta data
+            band_res = get_res(in_data=this_band_file)
+            if jj < (n_bands-1):
+                bands_info_meta = f'{bands['band_desc'][jj]} ({bands['band_unit'][jj]}) at {np.round(band_res, 3)}, '
+            else:
+                bands_info_meta = f'{bands['band_desc'][jj]} ({bands['band_unit'][jj]}) at {np.round(band_res, 3)}'
+            this_data.meta['input_bands'] += bands_info_meta
 
             if "/beam" in bands["band_unit"][jj]:
                 perbeam = True
@@ -525,6 +592,14 @@ def create_database(just_source=None, quiet=False, conf=False):
 
                 continue
             print(f'{"[INFO]":<10}', f'Convolving and sampling line {cubes["line_name"][jj]} for {this_source}.')
+
+            # add cube information to meta data
+            cube_res = get_res(in_data=this_line_file)
+            if jj < (n_cubes-1):
+                cubes_info_meta = f'{cubes['line_desc'][jj]} ({cubes['line_unit'][jj]}) at {np.round(cube_res, 3)}, '
+            else:
+                cubes_info_meta = f'{cubes['line_desc'][jj]} ({cubes['line_unit'][jj]}) at {np.round(cube_res, 3)}'
+            this_data.meta['input_cubes'] += cubes_info_meta
 
             if "/beam" in cubes["line_unit"][jj]:
                 perbeam = True
@@ -696,6 +771,8 @@ def create_database(just_source=None, quiet=False, conf=False):
                          overlay_slice_list,
                          folder_savefits,
                         target_res_as)
+        
+        print(f'{"[INFO]":<10}', f'Moment maps saved as fits files to: {folder_savefits}')
 
     return run_success
 
@@ -710,6 +787,7 @@ if not args.config is None:
     print(f'{"[INFO]":<10}', 'Configure file provided.')
     config_prov = True
     conf_file = args.config
+    conf_lines = load_conf_txt(conf_file)
     #if folder exists, we delete it first to make sure it contains no files
     if os.path.exists("./Temp_Files/"):
         shutil.rmtree('./Temp_Files')

@@ -1,7 +1,7 @@
 """
 Class that helps to analyze the PyStructure (in .eces or .npy format)
 """
-__author__ = "J. den Brok"
+__author__ = "J. den Brok & L. Neumann"
 
 
 import numpy as np
@@ -318,3 +318,18 @@ class PyStructure:
 
         #step 3: save the
         hdul.writeto(fname, overwrite=True)
+
+
+    def export_config(self, fname='PyStructure.conf'):
+        '''
+        Saves input config file to an expertal file.
+        '''
+        
+        conf_lines = self.struct.meta['Config_file']
+        f = open(fname, 'w')
+        for line in conf_lines:
+            f.writelines(line)
+            f.write('\n')
+        f.close()
+
+        return None
