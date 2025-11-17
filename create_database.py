@@ -522,9 +522,9 @@ def create_database(just_source=None, quiet=False, conf=False):
             # add band information to meta data
             band_res = get_res(in_data=this_band_file)
             if jj < (n_bands-1):
-                bands_info_meta = f'{bands['band_desc'][jj]} ({bands['band_unit'][jj]}) at {np.round(band_res, 3)}, '
+                bands_info_meta = f'{bands["band_desc"][jj]} ({bands["band_unit"][jj]}) at {np.round(band_res, 3)}, '
             else:
-                bands_info_meta = f'{bands['band_desc'][jj]} ({bands['band_unit'][jj]}) at {np.round(band_res, 3)}'
+                bands_info_meta = f'{bands["band_desc"][jj]} ({bands["band_unit"][jj]}) at {np.round(band_res, 3)}'
             this_data.meta['input_bands'] += bands_info_meta
 
             if "/beam" in bands["band_unit"][jj]:
@@ -596,9 +596,9 @@ def create_database(just_source=None, quiet=False, conf=False):
             # add cube information to meta data
             cube_res = get_res(in_data=this_line_file)
             if jj < (n_cubes-1):
-                cubes_info_meta = f'{cubes['line_desc'][jj]} ({cubes['line_unit'][jj]}) at {np.round(cube_res, 3)}, '
+                cubes_info_meta = f'{cubes["line_desc"][jj]} ({cubes["line_unit"][jj]}) at {np.round(cube_res, 3)}, '
             else:
-                cubes_info_meta = f'{cubes['line_desc'][jj]} ({cubes['line_unit'][jj]}) at {np.round(cube_res, 3)}'
+                cubes_info_meta = f'{cubes["line_desc"][jj]} ({cubes["line_unit"][jj]}) at {np.round(cube_res, 3)}'
             this_data.meta['input_cubes'] += cubes_info_meta
 
             if "/beam" in cubes["line_unit"][jj]:
