@@ -129,7 +129,7 @@ _For more examples, please refer to the [Documentation](https://pystructure.read
 <!-- ROADMAP -->
 ## Roadmap
 
-- [] Improve Documentation after transition to Astropy Tables.
+- [ ] Improve Documentation after transition to Astropy Tables.
 
 See the [open issues](https://github.com/jdenbrok/PyStructure/issues) for a full list of proposed features (and known issues).
 
