@@ -1,14 +1,15 @@
 import numpy as np
+from astropy import units as au
+from astropy.convolution import convolve, convolve_fft
 from astropy.io import fits
+from astropy.utils.console import ProgressBar
+from astropy.wcs import WCS
+from astropy.wcs.utils import proj_plane_pixel_scales
 import copy
 
-from polar_coord_funcs import *
-from deconvolve_gaussian import *
-from gauss_PSF import *
-import matplotlib.pyplot as plt
-from astropy.convolution import convolve, convolve_fft
-from astropy.utils.console import ProgressBar
-from scipy import ndimage
+from gauss_PSF import gaussian_PSF_2D
+from deconvolve_gaussian import deconvolve_gauss
+
 
 def round_sig(x, sig=2):
     return round(x, sig-int(np.floor(np.log10(abs(x))))-1)
@@ -25,6 +26,26 @@ def convolve_func(data, kernel, method = "direct"):
 
     return conv_data
 
+def get_pixel_scale(hdr, tol=0.1*au.arcsec):
+    """
+    Returns pixel scale in units of degree
+    """
+    # get wcs from header
+    w = WCS(hdr)
+
+    # compute pixel scales in the projected plane
+    pixel_scales = proj_plane_pixel_scales(w)  # in degrees/pixel
+    px_dx = pixel_scales[0] * au.deg # pixel scale in x
+    px_dy = pixel_scales[1] * au.deg # pixel scale in y
+
+    # check if x, y distances agree within some tolerance
+    if abs(px_dx - px_dy) > tol:
+        print(f'{"[WARNING]":<10}', 'Pixel scale looks different in X and Y.')
+        pixel_scale = np.sqrt(px_dx*px_dy)
+    else:
+        pixel_scale = px_dx
+        
+    return pixel_scale.value
 
 def conv_with_gauss(in_data,
                     in_hdr = None,
@@ -193,7 +214,7 @@ def conv_with_gauss(in_data,
 
     #; Measure the pixel size
     if pix_deg is None:
-        pix_deg = get_pixel_scale(hdr)
+        pix_deg = get_pixel_scale(hdr, tol=0.1*hdr["BMIN"]*au.deg)
     as_per_pix = pix_deg*3600.
 
     #; If we are treating the data as an uncertainty-type map (i.e., one
@@ -301,7 +322,7 @@ def conv_with_gauss(in_data,
 
         if len(dim_data) == 3:
             new_data = copy.deepcopy(data)
-            print(f'{"[INFO]":<10}', 'Start cube convolution...')
+            print(f'{"[INFO]":<10}', 'Start cube convolution:')
             for spec_n in ProgressBar(range(dim_data[0])):
                 new_data[spec_n,:,:] = convolve_func(data[spec_n, :,:],kernel,method)
             print(f'{"[INFO]":<10}', 'Done cube convolution.')
