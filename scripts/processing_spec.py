@@ -1,15 +1,15 @@
 import numpy as np
 import pandas as pd
 import os.path
-from scipy import stats
+# from scipy import stats
+from astropy import units as au
 from astropy.stats import median_absolute_deviation, mad_std
-from mom_computer import get_mom_maps
+from astropy.table import Table, Column
+
 
 from structure_addition import *
 from shuffle_spec import *
-
-from astropy.table import Table, Column
-from astropy import units as au
+from mom_computer import get_mom_maps
 
 def construct_mask(ref_line, this_data, SN_processing):
     """
@@ -143,23 +143,16 @@ def process_spectra(source_list,
 
             # check which lines are used as priors
             # n_mask = 0
+            line_names = [str(l) for l in lines_data['line_name']]
             if ref_line_method in ["first"]:
                 n_mask = 0
-                print(f'{"[INFO]":<10}', f'Using first line as prior: {str(lines_data["line_name"][0])}.')
+                print(f'{"[INFO]":<10}', f'Using first line as prior: {line_names[0]}.')
             elif ref_line_method in ["all"]:
                 n_mask = n_lines-1
-                line_list_str = ''
-                for i, line_name in enumerate(lines_data["line_name"]):
-                    line_list_str += str(line_name) 
-                    if i < n_mask: line_list_str += ', '
-                print(f'{"[INFO]":<10}', f'All lines used as prior: {line_list_str}.')
+                print(f'{"[INFO]":<10}', f'All lines used as prior: {line_names}.')
             elif isinstance(ref_line_method, int):
                 n_mask = np.min([n_lines,ref_line_method])
-                line_list_str = ''
-                for i, line_name in enumerate(lines_data["line_name"][:n_mask+1]):
-                    line_list_str += str(line_name) 
-                    if i < n_mask: line_list_str += ', '
-                print(f'{"[INFO]":<10}', f'Using first {n_mask+1} lines as prior: {line_list_str}.')
+                print(f'{"[INFO]":<10}', f'Using first {n_mask+1} lines as prior: {line_names[:n_mask+1]}.')
 
             # combine masks of all priors if more than one line is used
             if n_mask>0:
@@ -355,12 +348,14 @@ def process_spectra(source_list,
             #                         new_vaxis = this_vaxis, \
             #                         interp = 0)
                         
-            #compute moment_maps
+            # compute moment_maps
             # mom_maps = get_mom_maps(this_spec, shuffled_mask,this_vaxis, mom_calc)
             if use_hfs_lines:
-                if (line_name in lines_hfs):
+                if line_name in lines_hfs:
                     mask_hfs = this_data[f'SPEC_MASK_{line_name.upper()}']* au.Unit(1)
                     mom_maps = get_mom_maps(this_spec, mask_hfs, this_vaxis, mom_calc)
+                else:
+                    mom_maps = get_mom_maps(this_spec, mask, this_vaxis, mom_calc)
             else:
                 mom_maps = get_mom_maps(this_spec, mask, this_vaxis, mom_calc)
 
@@ -393,10 +388,11 @@ def process_spectra(source_list,
                 this_data[tag_mom1_err] = Column(mom_maps["mom1_err"], description=f'Propagated statistical error {line_desc} mean velocity (moment-1)')
                 this_data[tag_mom2] = Column(mom_maps["mom2"], description=f'{line_desc} velocity dispersion (moment-2; {mom_calc[2]} definition)')
                 this_data[tag_mom2_err] = Column(mom_maps["mom2_err"], description=f'Propagated statistical error {line_desc} velocity dispersion (moment-2; {mom_calc[2]} definition)')
-                
                 this_data[tag_ew] = Column(mom_maps["ew"], description=f'{line_desc} equivalent width (Gaussian approx)')
                 this_data[tag_ew_err] = Column(mom_maps["ew_err"], description=f'Propagated statistical error {line_desc} equivalent width (Gaussian approx)')
                 
+                print(f'{"[INFO]":<10}', f'Done with line {lines_data["line_name"][jj]}.')
+            
             else:
                 print(f'{"[INFO]":<10}', f'Intensity Map for {lines_data["line_name"][jj]} already provided. Skipping.')
 

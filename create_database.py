@@ -67,9 +67,12 @@ MODIFICATION HISTORY
     - v4.1.1 October 2025
             - Improved noise estimation (pixel-by-pixel basis)
 
+    - v4.2.0 November 2025
+            - Bug fix with pixel size estimation, which affects the convolution beam
+
 """
 __author__ = "J. den Brok & L. Neumann"
-__version__ = "v4.1.0"
+__version__ = "v4.2.0"
 __email__ = "jadenbrok@mpia.de & lukas.neumann@eso.org"
 __credits__ = ["M. Jimenez-Donaire", "E. Rosolowsky", "A. Leroy ", "I. Beslic"]
 
@@ -97,8 +100,8 @@ from sampling_at_resol import sample_at_res, sample_mask
 from deproject import deproject
 from twod_header import twod_head
 from processing_spec import process_spectra
-from message_list import *
-from save_moment_maps import save_mom_to_fits
+from message_list import print_warning
+from save_moment_maps import save_mom_to_fits, save_band_to_fits
 
 
 
@@ -257,7 +260,7 @@ def create_database(just_source=None, quiet=False, conf=False):
     band_names = [str(b) for b in bands['band_name']]
     
     if quiet == False:
-        print(f'{"[INFO]":<10}', f'Loading {n_bands} band(s): {band_names}')
+        print(f'{"[INFO]":<10}', f'Loading {n_bands} band(s): {band_names}.')
 
 
     # Add the cubes to the structure
@@ -267,7 +270,7 @@ def create_database(just_source=None, quiet=False, conf=False):
     cube_names = [str(c) for c in cubes['line_name']]
 
     if quiet == False:
-        print(f'{"[INFO]":<10}', f'Loading {n_cubes} cube(s): {cube_names}')
+        print(f'{"[INFO]":<10}', f'Loading {n_cubes} cube(s): {cube_names}.')
 
     # Add the input velocity-integration mask to the structure
     # mask_columns = ["mask_name", "mask_desc", "mask_unit", "mask_ext", "mask_dir"]
@@ -501,7 +504,7 @@ def create_database(just_source=None, quiet=False, conf=False):
         for jj in range(n_bands):
 
             print('-------------------------------')
-            print(f'{"[INFO]":<10}', f'Process band: {bands["band_name"][jj]}')
+            print(f'{"[INFO]":<10}', f'Process band {bands["band_name"][jj]}.')
 
             if 'fill' in structure_creation:
                 if bands["band_name"][jj] in fill_bands:
@@ -522,9 +525,9 @@ def create_database(just_source=None, quiet=False, conf=False):
             # add band information to meta data
             band_res = get_res(in_data=this_band_file)
             if jj < (n_bands-1):
-                bands_info_meta = f'{bands['band_desc'][jj]} ({bands['band_unit'][jj]}) at {np.round(band_res, 3)}, '
+                bands_info_meta = f'{bands["band_desc"][jj]} ({bands["band_unit"][jj]}) at {np.round(band_res, 3)}, '
             else:
-                bands_info_meta = f'{bands['band_desc'][jj]} ({bands['band_unit'][jj]}) at {np.round(band_res, 3)}'
+                bands_info_meta = f'{bands["band_desc"][jj]} ({bands["band_unit"][jj]}) at {np.round(band_res, 3)}'
             this_data.meta['input_bands'] += bands_info_meta
 
             if "/beam" in bands["band_unit"][jj]:
@@ -577,7 +580,7 @@ def create_database(just_source=None, quiet=False, conf=False):
         for jj in range(n_cubes):
 
             print('-------------------------------')
-            print(f'{"[INFO]":<10}', f'Process line: {cubes["line_name"][jj]}')
+            print(f'{"[INFO]":<10}', f'Process line {cubes["line_name"][jj]}.')
 
             if 'fill' in structure_creation:
                 if cubes["line_name"][jj] in fill_cubes:
@@ -596,9 +599,9 @@ def create_database(just_source=None, quiet=False, conf=False):
             # add cube information to meta data
             cube_res = get_res(in_data=this_line_file)
             if jj < (n_cubes-1):
-                cubes_info_meta = f'{cubes['line_desc'][jj]} ({cubes['line_unit'][jj]}) at {np.round(cube_res, 3)}, '
+                cubes_info_meta = f'{cubes["line_desc"][jj]} ({cubes["line_unit"][jj]}) at {np.round(cube_res, 3)}, '
             else:
-                cubes_info_meta = f'{cubes['line_desc'][jj]} ({cubes['line_unit'][jj]}) at {np.round(cube_res, 3)}'
+                cubes_info_meta = f'{cubes["line_desc"][jj]} ({cubes["line_unit"][jj]}) at {np.round(cube_res, 3)}'
             this_data.meta['input_cubes'] += cubes_info_meta
 
             if "/beam" in cubes["line_unit"][jj]:
@@ -753,26 +756,48 @@ def create_database(just_source=None, quiet=False, conf=False):
                     [mom_thresh,conseq_channels,mom2_method],
                     )
   
-    #Open the PyStructure and Save as FITS File
-    if save_mom_maps:
-        #create a folder to save
-        if not os.path.exists(folder_savefits):
-            os.makedirs(folder_savefits)
-        # Warning
-        if spacing_per_beam < 4:
-            print(f'{"[WARNING]":<10}', 'Spacing per beam too small for proper resampling to pixel grid.')
+    # Open the PyStructure and Save as FITS File
+    if save_mom_maps | save_band_maps:
 
-        #iterate over the individual sources
-        save_mom_to_fits(fnames,
-                         cubes,
-                         source_list,
-                         run_success,
-                         overlay_hdr_list,
-                         overlay_slice_list,
-                         folder_savefits,
-                        target_res_as)
-        
-        print(f'{"[INFO]":<10}', f'Moment maps saved as fits files to: {folder_savefits}')
+        # warning
+        if spacing_per_beam < 4:
+            print(f'{"[WARNING]":<10}', 'Spacing per beam too small (< 4) for proper resampling to pixel grid; expecting image artifacts.')
+
+        if save_mom_maps:
+
+            # create a folder to save
+            if not os.path.exists(folder_savefits_lines):
+                os.makedirs(folder_savefits_lines)
+
+            # save moment maps for all lines and sources
+            save_mom_to_fits(fnames,
+                            cubes,
+                            source_list,
+                            run_success,
+                            overlay_hdr_list,
+                            overlay_slice_list,
+                            folder_savefits_lines,
+                            target_res_as)
+            
+            print(f'{"[INFO]":<10}', f'Moment maps saved as fits files to: {folder_savefits_lines}')
+
+        if save_band_maps:
+
+            # create a folder to save
+            if not os.path.exists(folder_savefits_bands):
+                os.makedirs(folder_savefits_bands)
+
+            # save band maps for all bands and sources
+            save_band_to_fits(fnames,
+                            bands,
+                            source_list,
+                            run_success,
+                            overlay_hdr_list,
+                            overlay_slice_list,
+                            folder_savefits_bands,
+                            target_res_as)
+            
+            print(f'{"[INFO]":<10}', f'Band maps saved as fits files to: {folder_savefits_bands}')
 
     return run_success
 
