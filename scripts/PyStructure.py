@@ -15,6 +15,7 @@ from astropy.io import fits
 from trans_array_to_map import *
 from astropy.table import Table, Column
 from astropy import units as au
+from matplotlib.colors import Normalize, LogNorm, SymLogNorm
 
 class PyStructure:
     #store the linenames
@@ -103,12 +104,14 @@ class PyStructure:
 
         return self.sfr
 
-    def quickplot_2Dmap(self,line, s = 50, cmap = None):
+    def quickplot_2Dmap(self, line, s=50, cmap=None, stretch='lin'):
         """
         Plot a 2D map of a line that is provided
 
         optional parameters
         :param s: marker size
+        :param cmap: colormap
+        :param stretch: data stretch ('lin', 'log', 'symlog)
 
         """
 
@@ -122,12 +125,18 @@ class PyStructure:
             ii_value = self.struct["MOM0_"+line]
         else:
             ii_value = self.struct["INT_VAL_"+line]
-        im = ax.scatter(ra, dec, c = ii_value, s=s, marker="h", cmap = cmap)
+        if stretch == 'lin':
+            norm = Normalize(vmin=np.nanmin(ii_value), vmax=np.nanmax(ii_value))
+        elif stretch == 'log':
+            norm = LogNorm(vmin=np.nanmin(ii_value[ii_value>0]), vmax=np.nanmax(ii_value))
+        elif stretch == 'symlog':
+            norm = SymLogNorm(linthresh=np.nanmax(ii_value)*0.1,vmin=np.nanmin(ii_value), vmax=np.nanmax(ii_value))
+        im = ax.scatter(ra, dec, c=ii_value, s=s, marker="h", cmap=cmap, norm=norm)
         ax.invert_xaxis()
         ax.set_ylabel("Decl.")
         ax.set_xlabel("R.A.")
         cb_ax = fig.add_axes([.91,.124,.04,.754])
-        fig.colorbar(im,orientation='vertical',cax=cb_ax)
+        fig.colorbar(im, orientation='vertical', cax=cb_ax, label=f'{line} integrated intensity [{str(self.struct[f"MOM0_{line}"].unit)}]')
         plt.show()
 
     def get_vaxis(self, get_shuff = False):
@@ -157,7 +166,7 @@ class PyStructure:
 
         return vaxis
 
-    def quickplot_spectrum(self, line, idx, show_mask=False):
+    def quickplot_spectrum(self, line, idx=None, show_mask=False):
         """
         Plot a spectrum of a line that is provided
 
@@ -169,11 +178,20 @@ class PyStructure:
         # velocity axis
         vaxis = self.get_vaxis(get_shuff=False)
 
-        # load spectrum
-        spec = self.struct[f'SPEC_{line}'][idx]
+        # load cube
+        cube = self.struct[f'SPEC_{line}']
+
+        # get pixel index
+        if idx is not None:
+            pass
+        else:
+            idx = np.argmin(self.rgal)
+
+        # get spectrum
+        spec = cube[idx]
 
         # initialise figure
-        fig = plt.figure(figsize=(10,6))
+        fig = plt.figure(figsize=(6,4))
         ax = plt.subplot(1,1,1)
 
         # spectrum
@@ -188,7 +206,7 @@ class PyStructure:
 
         # axis labels
         ax.set_xlabel('Velocity [km/s]')
-        ax.set_ylabel(f'{line} brightness temperature [K]')
+        ax.set_ylabel(f'{line} brightness temperature [{str(self.struct[f"SPEC_{line}"].unit)}]')
 
         plt.show()
 

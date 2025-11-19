@@ -348,12 +348,14 @@ def process_spectra(source_list,
             #                         new_vaxis = this_vaxis, \
             #                         interp = 0)
                         
-            #compute moment_maps
+            # compute moment_maps
             # mom_maps = get_mom_maps(this_spec, shuffled_mask,this_vaxis, mom_calc)
-            if line_name in lines_hfs:
-                if use_hfs_lines:
+            if use_hfs_lines:
+                if line_name in lines_hfs:
                     mask_hfs = this_data[f'SPEC_MASK_{line_name.upper()}']* au.Unit(1)
                     mom_maps = get_mom_maps(this_spec, mask_hfs, this_vaxis, mom_calc)
+                else:
+                    mom_maps = get_mom_maps(this_spec, mask, this_vaxis, mom_calc)
             else:
                 mom_maps = get_mom_maps(this_spec, mask, this_vaxis, mom_calc)
 
