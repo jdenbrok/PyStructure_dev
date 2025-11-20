@@ -757,6 +757,9 @@ def create_database(just_source=None, quiet=False, conf=False):
                     )
   
     # Open the PyStructure and Save as FITS File
+    if 'save_band_maps' not in globals():
+        save_band_maps = False
+
     if save_mom_maps | save_band_maps:
 
         # warning
@@ -766,8 +769,8 @@ def create_database(just_source=None, quiet=False, conf=False):
         if save_mom_maps:
 
             # create a folder to save
-            if not os.path.exists(folder_savefits_lines):
-                os.makedirs(folder_savefits_lines)
+            if not os.path.exists(folder_savefits):
+                os.makedirs(folder_savefits)
 
             # save moment maps for all lines and sources
             save_mom_to_fits(fnames,
@@ -776,16 +779,16 @@ def create_database(just_source=None, quiet=False, conf=False):
                             run_success,
                             overlay_hdr_list,
                             overlay_slice_list,
-                            folder_savefits_lines,
+                            folder_savefits,
                             target_res_as)
             
-            print(f'{"[INFO]":<10}', f'Moment maps saved as fits files to: {folder_savefits_lines}')
+            print(f'{"[INFO]":<10}', f'Moment maps saved as fits files to: {folder_savefits}')
 
         if save_band_maps:
 
             # create a folder to save
-            if not os.path.exists(folder_savefits_bands):
-                os.makedirs(folder_savefits_bands)
+            if not os.path.exists(folder_savefits):
+                os.makedirs(folder_savefits)
 
             # save band maps for all bands and sources
             save_band_to_fits(fnames,
@@ -794,10 +797,10 @@ def create_database(just_source=None, quiet=False, conf=False):
                             run_success,
                             overlay_hdr_list,
                             overlay_slice_list,
-                            folder_savefits_bands,
+                            folder_savefits,
                             target_res_as)
             
-            print(f'{"[INFO]":<10}', f'Band maps saved as fits files to: {folder_savefits_bands}')
+            print(f'{"[INFO]":<10}', f'Band maps saved as fits files to: {folder_savefits}')
 
     return run_success
 
